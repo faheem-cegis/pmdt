@@ -928,6 +928,127 @@
        stacking vertically and eating into the question area */
     #sidebar-items { display: flex; gap: 6px; }
   }
+
+  /* ================================================================
+     GENERAL FIXES (all screen sizes)
+  ================================================================ */
+  /* Privacy notice paragraphs were picking up the bigger welcome-page text
+     size; make them match the notice's lists */
+  .privacy-notice p { font-size: inherit; line-height: inherit; color: inherit; margin: 6px 0; }
+
+  /* Long questions were cut off after ~3 lines. The question area scrolls
+     now, so show the full question */
+  body.survey-mode .q-text-fixed { max-height: none; overflow: visible; }
+
+  /* PRELIMINARY REPORT NOTE (results page + PDF) */
+  .report-disclaimer {
+    background: #fffbea;
+    border: 1px solid #ecd98a;
+    border-left: 4px solid var(--yellow-ochre);
+    padding: 14px 18px;
+    margin: 0 0 22px;
+    font-size: 0.85rem;
+    line-height: 1.65;
+    color: var(--text-dark);
+  }
+  .report-disclaimer strong {
+    display: block;
+    font-size: 0.72rem; letter-spacing: 0.07em; text-transform: uppercase;
+    color: #7f6000; margin-bottom: 4px;
+  }
+
+  /* ================================================================
+     PHONE LAYOUT (screens up to 767px wide): everything in ONE column
+     Placed last so it overrides the earlier mobile rules.
+  ================================================================ */
+  @media (max-width: 767px) {
+
+    /* ---------- WELCOME ---------- */
+    /* 71 / 4 / 5 sit in one even row instead of 2 + 1 */
+    .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .stat-card { min-width: 0; padding: 10px 6px; }
+    .privacy-notice { padding: 10px 12px; }
+    #btn-begin { width: 100%; }
+
+    /* ---------- PROFILE ---------- */
+    /* Buttons full width, "Proceed" on top, "Back" underneath */
+    .profile-actions { flex-direction: column-reverse; align-items: stretch !important; }
+    .profile-actions .btn { width: 100%; text-align: center; }
+
+    /* ---------- SURVEY ---------- */
+    /* Top strip = two lines: section tabs (swipe sideways), then progress */
+    .survey-sidebar {
+      flex-direction: column; align-items: stretch;
+      padding: 8px 12px 8px; gap: 8px; overflow: hidden;
+    }
+    #sidebar-items { overflow-x: auto; scrollbar-width: none; }   /* tabs scroll, not the page */
+    #sidebar-items::-webkit-scrollbar { display: none; }
+    .sidebar-footer {
+      margin: 0; padding: 0; border: none;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .sidebar-pct-card { margin: 0; padding: 3px 8px; flex-shrink: 0; }
+    .sidebar-pct-num  { font-size: 1rem; }
+    .sidebar-pct-sym  { font-size: 0.65rem; }
+    .sidebar-progress-label { display: block; margin: 0; white-space: nowrap; font-size: 0.7rem; }
+    .sidebar-progress-track { display: block; flex: 1; margin: 0; }
+
+    /* Less empty space around the question so more of it fits */
+    .survey-questions-wrap  { padding: 12px 12px 8px; }
+    .question-card-carousel { padding: 6px 4px 8px; }
+    .q-text-fixed { min-height: 0; margin-bottom: 14px; }
+
+    /* Previous / Next share the width */
+    .section-nav { gap: 10px; }
+    .section-nav .btn { flex: 1; text-align: center; }
+
+    /* ---------- RESULTS ---------- */
+    .results-hero    { padding: 18px 16px; }
+    .results-hero h2 { font-size: 1.05rem; }
+    .report-disclaimer { padding: 12px 14px; font-size: 0.82rem; }
+
+    /* Score tiles: one line per function, name on the left, score on the right.
+       The names and scores live in two separate rows in the HTML;
+       "display: contents" lets us re-pair them into a 2-column grid. */
+    .score-tier-wrap { display: grid; grid-template-columns: 1fr auto; row-gap: 6px; }
+    .score-tier-wrap .score-tier-row { display: contents; }
+    .score-tier-wrap .score-tile:nth-child(1) { grid-row: 1; }
+    .score-tier-wrap .score-tile:nth-child(2) { grid-row: 2; }
+    .score-tier-wrap .score-tile:nth-child(3) { grid-row: 3; }
+    .score-tier-wrap .score-tile:nth-child(4) { grid-row: 4; }
+    .score-tier-wrap .score-tier-row .tier-name {
+      grid-column: 1; margin-top: 0;
+      justify-content: flex-start; text-align: left; padding: 12px 14px;
+      border-radius: 8px 0 0 8px !important;
+    }
+    .score-tier-wrap .score-tier-row .tier-score {
+      grid-column: 2; min-width: 84px;
+      display: flex; align-items: center; justify-content: center;
+      padding: 8px 12px; font-size: 1.5rem;
+      border: 1.5px solid var(--cegis-blue); border-left: none;
+      border-radius: 0 8px 8px 0 !important;
+    }
+
+    /* Focus-area table → one card per PM function (no sideways scrolling) */
+    #breakdown-table, #breakdown-table tbody,
+    #breakdown-table tr, #breakdown-table td { display: block; width: 100%; }
+    #breakdown-table { border: none; }
+    #breakdown-table thead { display: none; }           /* labels come from data-label instead */
+    #breakdown-table tr { border: 1.5px solid #c8c8c8; margin-bottom: 12px; }
+    #breakdown-table td {
+      display: flex; justify-content: space-between; align-items: center;
+      border: none; border-top: 1px solid #e6e6e6; padding: 8px 12px;
+    }
+    #breakdown-table td::before {                         /* shows the focus-area name */
+      content: attr(data-label);
+      font-size: 0.8rem; color: var(--text-mid); padding-right: 10px;
+    }
+    #breakdown-table td.bt-fn { background: var(--cegis-blue); color: #fff !important; border-top: none; }
+    #breakdown-table td.bt-fn::before { content: none; }
+
+    .score-legend { gap: 10px; }
+    #btn-pdf { width: 100%; }
+  }
 </style>
 </head>
 <body>
@@ -1046,7 +1167,7 @@ Please go through the <a href="https://docs.google.com/document/d/1GwaL7zuG2jss2
 
         <div class="profile-error" id="profile-error" style="display:none;"></div>
 
-        <div style="display:flex; gap:12px; margin-top:28px; flex-wrap:wrap; align-items:center;">
+        <div class="profile-actions" style="display:flex; gap:12px; margin-top:28px; flex-wrap:wrap; align-items:center;">
           <button class="btn btn-secondary" onclick="showScreen('screen-welcome')">← Back</button>
           <button class="btn btn-primary btn-lg" id="btn-proceed" onclick="proceedClicked()" style="opacity:0.45; cursor:not-allowed;">Proceed to Survey →</button>
         </div>
@@ -1091,6 +1212,18 @@ Please go through the <a href="https://docs.google.com/document/d/1GwaL7zuG2jss2
         <h2>Self-Assessment Results</h2>
       </div>
       <div class="respondent-card" id="respondent-card"></div>
+
+      <!-- PRELIMINARY REPORT NOTE: printed in the PDF as well -->
+      <div class="report-disclaimer">
+        <strong>Preliminary report</strong>
+        This is a preliminary report generated solely from the responses submitted by the individual
+        named above. It reflects the respondent's own self-assessment at the time of completion and has
+        not been independently verified, validated or moderated. The report does not constitute an
+        official evaluation, audit or rating of the department, its officials or its performance, and
+        should not be relied upon, cited or construed as such. It is intended only to support reflection
+        and further discussion, and should be read alongside other relevant evidence before any
+        conclusions are drawn.
+      </div>
       <div class="score-summary-grid" id="pm-score-cards"></div>
 
 
@@ -1876,15 +2009,15 @@ function showResults() {
   const allFAs = [...new Set(QUESTIONS.filter(q => activeFns2.indexOf(q.pm_function) !== -1).map(q => q.focus_area))];
   let t = `<thead><tr><th>PM Function</th>${allFAs.map(f=>`<th style="font-size:0.68rem;">${f}</th>`).join('')}</tr></thead><tbody>`;
   SECTIONS.forEach(sec => {
-    t += `<tr><td style="font-weight:700;color:var(--cegis-blue);font-size:0.83rem;">${sec.fn}</td>`;
+    t += `<tr><td class="bt-fn" style="font-weight:700;color:var(--cegis-blue);font-size:0.83rem;">${sec.fn}</td>`;
     allFAs.forEach(f => {
       const k = `${sec.fn}|||${f}`;
       if (cross[k]) {
         const v   = (cross[k].t / cross[k].n).toFixed(1);
         const cls = chipCls(parseFloat(v));
-        t += `<td><span class="score-chip ${cls}">${v}</span></td>`;
+        t += `<td data-label="${f}"><span class="score-chip ${cls}">${v}</span></td>`;
       } else {
-        t += `<td><span class="score-chip chip-empty">-</span></td>`;
+        t += `<td data-label="${f}"><span class="score-chip chip-empty">-</span></td>`;
       }
     });
     t += `</tr>`;
@@ -1959,11 +2092,28 @@ function downloadPDF() {
   btn.textContent = 'Generating…';
   btn.disabled = true;
 
+  /* PHONES: switch to the desktop layout while the PDF is drawn.
+     The viewport tag tells the phone how wide to lay the page out. Setting it
+     to 1100px makes the phone-only CSS switch off, so the PDF uses the same
+     A4 layout as on a laptop. It is put back once the PDF is done.
+     (Laptops ignore this tag, so nothing changes there.) */
+  const vp = document.querySelector('meta[name="viewport"]');
+  const originalViewport = vp ? vp.getAttribute('content') : null;
+  if (vp && window.innerWidth < 1100) vp.setAttribute('content', 'width=1100');
+
   /* Add exporting class — this triggers CSS rules that:
      1. Remove overflow/height constraints from scroll containers (so
         html2canvas can see the full page including the Annexure)
      2. Hide the download button itself (no-pdf class)  */
   document.body.classList.add('exporting');
+
+  /* Runs when the PDF is finished (or fails): put everything back */
+  function restore() {
+    if (vp && originalViewport) vp.setAttribute('content', originalViewport);
+    document.body.classList.remove('exporting');
+    btn.textContent = '⬇ Download PDF';
+    btn.disabled = false;
+  }
 
   /* Capture the results content div — now fully visible thanks to exporting CSS */
   const el = document.querySelector('#screen-results .content');
@@ -1979,7 +2129,8 @@ function downloadPDF() {
       /* scrollY:0 ensures html2canvas starts from the top of the element,
          not from wherever the user has scrolled to */
       scrollY: 0,
-      windowWidth: document.documentElement.scrollWidth
+      /* Draw as if the window is at least 1100px wide (desktop layout) */
+      windowWidth: Math.max(document.documentElement.scrollWidth, 1100)
     },
     jsPDF:       { unit: 'mm', format: 'a4', orientation: 'portrait' },
     /* css mode: respects break-before:page / page-break-before:always set in HTML/CSS.
@@ -1988,20 +2139,10 @@ function downloadPDF() {
     pagebreak:   { mode: 'css', before: '[style*="break-before:page"]' }
   };
 
-  html2pdf()
-    .set(opt)
-    .from(el)
-    .save()
-    .then(() => {
-      document.body.classList.remove('exporting');
-      btn.textContent = '⬇ Download PDF';
-      btn.disabled = false;
-    })
-    .catch(() => {
-      document.body.classList.remove('exporting');
-      btn.textContent = '⬇ Download PDF';
-      btn.disabled = false;
-    });
+  /* Short pause so the phone finishes re-drawing at desktop width first */
+  setTimeout(function() {
+    html2pdf().set(opt).from(el).save().then(restore).catch(restore);
+  }, 400);
 }
 /* UPDATE DOTS OUTSIDE CAROUSEL */
 function updateDots(qs) {
