@@ -21,7 +21,7 @@
 -->
 <meta http-equiv="Content-Security-Policy"
   content="default-src 'self';
-           script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net;
+           script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.sheetjs.com;
            style-src 'self' 'unsafe-inline';
            connect-src https://*.supabase.co;
            img-src 'self' data:;
@@ -29,7 +29,10 @@
 <title>Login - PMDT</title>
 <!-- Supabase JS client -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
+<!-- SheetJS: lets the browser read the uploaded context Excel file and
+     write the respondent-data Excel download. Loaded from SheetJS's own CDN
+     because the npm/jsDelivr copy (0.18.5) is old and has known security fixes missing. -->
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 
 <style>
   :root {
@@ -194,7 +197,7 @@
   <div class="auth-card">
     <div class="auth-tabs">
       <div class="auth-tab active" onclick="switchTab('login')">Sign In</div>
-      <div class="auth-tab" onclick="switchTab('signup')">Create Account</div>
+      <div class="auth-tab" id="signup-tab-btn" onclick="switchTab('signup')">Create Account</div>
     </div>
 
     <!-- LOGIN and SIGN UP panels sit inside a wrapper so the card always
@@ -219,14 +222,9 @@
       <div style="text-align:center;margin-top:12px;">
         <button class="btn-link btn" onclick="doForgotPassword()">Forgot password?</button>
       </div>
-      <!-- TOTP notice -->
-      <p style="margin-top:20px;font-size:0.75rem;color:var(--mid);line-height:1.6;border-top:1px solid #eee;padding-top:14px;">
-        🔐 This app uses two-factor authentication. After signing in you will be asked for a
-        6-digit verification code. Please ensure you have an authenticator app installed on
-        your phone. We recommend
-        <strong>Google Authenticator</strong> or
-        <strong>Microsoft Authenticator</strong>,
-        both available free on the App Store and Google Play.
+      <!-- Shown only when self sign-up is OFF (see ALLOW_SELF_SIGNUP in the script) -->
+      <p id="no-signup-note" style="display:none;margin-top:20px;font-size:0.75rem;color:var(--mid);line-height:1.6;border-top:1px solid #eee;padding-top:14px;">
+        Admin accounts are created by the CEGIS team. If you need access, please contact them.
       </p>
     </div>
 
@@ -247,15 +245,6 @@
         <input class="form-input" id="signup-pass" type="password" placeholder="Minimum 8 characters">
       </div>
       <button class="btn btn-primary" onclick="doSignup()">Create Account</button>
-      <!-- TOTP notice -->
-      <p style="margin-top:20px;font-size:0.75rem;color:var(--mid);line-height:1.6;border-top:1px solid #eee;padding-top:14px;">
-        🔐 This app uses two-factor authentication. Once your account is created you will be
-        guided to set up a verification code on your first sign-in. Please install an
-        authenticator app on your phone before proceeding. We recommend
-        <strong>Google Authenticator</strong> or
-        <strong>Microsoft Authenticator</strong>,
-        both available free on the App Store and Google Play.
-      </p>
     </div>
 
     </div><!-- end auth-panels-wrap -->
@@ -263,74 +252,7 @@
   </div><!-- end auth-right -->
 </div>
 
-<!-- MFA VERIFY SCREEN: shown after password is correct, asks for 6-digit code -->
-<div id="mfa-verify-screen" class="auth-wrap" style="display:none;">
-  <div class="auth-card">
-    <h2 style="font-size:1rem;font-weight:700;color:var(--blue);margin-bottom:6px;">Two-Factor Verification</h2>
-    <p style="font-size:0.8rem;color:var(--mid);margin-bottom:20px;">
-      Open your authenticator app and enter the 6-digit code shown for this account.
-    </p>
-    <div class="alert alert-error" id="mfa-verify-err"></div>
-    <div class="form-group">
-      <label class="form-label">6-Digit Code</label>
-      <!-- inputmode="numeric" brings up number keyboard on mobile -->
-      <input class="form-input" id="mfa-code-input" type="text"
-        inputmode="numeric" maxlength="6" placeholder="000000"
-        style="font-size:1.4rem;letter-spacing:0.3em;text-align:center;"
-        onkeydown="if(event.key==='Enter')doVerifyTotp()">
-    </div>
-    <button class="btn btn-primary" onclick="doVerifyTotp()">Verify</button>
-    <div style="text-align:center;margin-top:12px;">
-      <button class="btn-link btn" onclick="doSignout()">Cancel and sign out</button>
-    </div>
-  </div>
-</div>
-
-<!-- MFA ENROL SCREEN: shown on first login when no TOTP factor exists yet -->
-<div id="mfa-enrol-screen" class="auth-wrap" style="display:none;">
-  <div class="auth-card">
-    <h2 style="font-size:1rem;font-weight:700;color:var(--blue);margin-bottom:6px;">Set Up Two-Factor Authentication</h2>
-    <p style="font-size:0.8rem;color:var(--mid);margin-bottom:16px;">
-      This is a one-time setup. Open your authenticator app, tap the
-      <strong>+</strong> button, choose <strong>Scan QR code</strong>,
-      and point your camera at the image below.
-    </p>
-    <div class="alert alert-error" id="mfa-enrol-err"></div>
-    <!-- QR code image will be injected here by JS -->
-    <div id="mfa-qr-wrap" style="text-align:center;margin:16px 0;">
-      <p style="font-size:0.8rem;color:var(--mid);">Loading QR code...</p>
-    </div>
-    <!-- Manual entry fallback -->
-    <div id="mfa-secret-wrap" style="display:none;margin-bottom:16px;">
-      <p style="font-size:0.75rem;color:var(--mid);margin-bottom:6px;">
-        If you cannot scan the QR code, enter this code manually in your app:
-      </p>
-      <div style="background:#f4f6f8;padding:10px;font-family:monospace;
-        font-size:0.9rem;letter-spacing:0.15em;text-align:center;word-break:break-all;"
-        id="mfa-secret-text"></div>
-    </div>
-    <div class="form-group">
-      <label class="form-label">Enter the 6-digit code from your app to confirm setup</label>
-      <input class="form-input" id="mfa-enrol-code" type="text"
-        inputmode="numeric" maxlength="6" placeholder="000000"
-        style="font-size:1.4rem;letter-spacing:0.3em;text-align:center;"
-        onkeydown="if(event.key==='Enter')doEnrolTotp()">
-    </div>
-    <button class="btn btn-primary" onclick="doEnrolTotp()">Confirm and Continue</button>
-    <p style="margin-top:14px;font-size:0.75rem;color:var(--mid);text-align:center;">
-      Having trouble?
-      <button class="btn-link btn" style="font-size:0.75rem;"
-        onclick="document.getElementById('mfa-secret-wrap').style.display='block'">
-        Show manual entry code
-      </button>
-    </p>
-    <div style="text-align:center;margin-top:8px;">
-      <button class="btn-link btn" onclick="doSignout()">Cancel and sign out</button>
-    </div>
-  </div>
-</div>
-
-<!-- PROFILE SETUP SCREEN: shown once after first successful MFA verification -->
+<!-- PROFILE SETUP SCREEN: shown once after the admin's first sign-in -->
 <!-- Collects creator identity details that are saved to the user's account  -->
 <!-- and reused automatically on every instance they create going forward    -->
 <div id="profile-setup-screen" class="auth-wrap" style="display:none;">
@@ -435,6 +357,21 @@
             </div>
           </div>
 
+          <!-- Question context upload (optional) -->
+          <div class="form-group">
+            <label class="form-label">Question Context (optional)</label>
+            <p style="font-size:0.75rem;color:var(--mid);margin-bottom:8px;line-height:1.5;">
+              Upload the filled-in context template (.xlsx). Respondents will see each question's
+              context in a box between the question and the answer options.
+            </p>
+            <button class="btn btn-sm" type="button" style="background:var(--bg);border:1px solid #ccc;width:auto;margin-bottom:8px;"
+              onclick="downloadContextTemplate()">⬇ Download blank template</button>
+            <input class="form-input" id="context-file" type="file" accept=".xlsx,.xls"
+              onchange="readContextFile(this.files[0])">
+            <!-- Filled in by readContextFile(): tells the admin how many contexts were found -->
+            <div id="context-status" style="font-size:0.75rem;margin-top:6px;"></div>
+          </div>
+
           <button class="btn btn-primary" onclick="createInstance()" style="width:auto;padding:10px 28px;">Create &amp; Generate Link</button>
           <div id="new-link-box" style="display:none;margin-top:18px;">
             <div style="font-size:0.8rem;font-weight:600;color:var(--green);margin-bottom:6px;">Instance created. Share this link:</div>
@@ -465,6 +402,17 @@ const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsI
 const { createClient } = supabase;
 const db = createClient(SUPA_URL, SUPA_KEY);
 
+// ACCOUNT CREATION SETTING
+// false = admin accounts are created ONLY from the Supabase dashboard
+//         (Authentication → Users → Add user). The "Create Account" tab is hidden.
+// true  = anyone can register from this page (the old behaviour, minus 2FA).
+// IMPORTANT: hiding the tab is cosmetic. To truly block self-registration, also turn
+// OFF "Allow new users to sign up" in Supabase → Authentication → Sign In / Providers.
+const ALLOW_SELF_SIGNUP = false;
+
+// Max characters allowed for one question's context (keeps the survey screen readable)
+const MAX_CONTEXT_CHARS = 1500;
+
 // QUESTION DATA
 const QUESTIONS = [{"id":1,"pm_function":"Staffing","focus_area":"Resources, Roles and Capacity","question":"To what extent does the M/D/O allocate adequate staff to its priority units/functions to achieve strategic objectives?","responses":[{"text":"The department does not formally assess or allocate adequate staffing in its priority units or functions.","score":1},{"text":"The department allocates staff to priority units informally, guided by immediate needs rather than a structured assessment of staffing requirements.","score":2},{"text":"The department has initiated processes to assess staffing adequacy in key units, though allocation practices vary across departments.","score":3},{"text":"The deparment has enacted formal procedures to allocate sufficient staff to priority units, with periodic reviews to maintain its strategic objectives.","score":4},{"text":"The department has institutionalised systematic, data-informed staffing allocation that ensures optimal staff deployment across all strategic and key functions.","score":5}]},{"id":2,"pm_function":"Staffing","focus_area":"Systems and Processes","question":"To what extent does the department systematically plan for leadership continuity by tracking retirement risks, maintaining succession plans for critical posts, and preparing staff for higher responsibilities?","responses":[{"text":"The department does not formally track retirement risks or undertake any succession planning for critical leadership positions.","score":1},{"text":"The department addresses leadership vacancies as they arise, focusing only on immediate replacements without a structured succession strategy.","score":2},{"text":"The department has initiated basic efforts to track retirement and attrition data, with preliminary identification of potential successors for key positions, though these practices are not yet applied consistently.","score":3},{"text":"The department has formalised and enacted structured succession planning processes that identify critical posts, prepare staff for higher responsibilities, and ensure leadership continuity.","score":4},{"text":"The department has embedded proactive, data-informed succession planning practices that maintain a leadership pipeline and support long-term organisational stability and continuity.","score":5}]},{"id":3,"pm_function":"Staffing","focus_area":"Systems and Processes","question":"How effectively does the department govern the engagement of contractual and contingent staff through clear policies, transparent criteria for role allocation, and mechanisms to ensure service continuity?","responses":[{"text":"The department does not have formal policies or oversight mechanisms to govern the engagement of contractual or contingent staff.","score":1},{"text":"The department engages contractual and deputed staff on an ad hoc basis, with limited transparency and coordination across functions.","score":2},{"text":"The department has initiated the development of guidelines for managing contractual and contingent staff, though implementation and oversight are not yet consistent.","score":3},{"text":"The department has formalised and enacted clear policies and transparent criteria for engaging contractual staff, ensuring accountability and service continuity.","score":4},{"text":"The department has embedded structured governance mechanisms for contractual and contingent workforce management, ensuring strategic deployment, equitable treatment, and sustained performance oversight.","score":5}]},{"id":4,"pm_function":"Staffing","focus_area":"Systems and Processes","question":"To what extent does the M/D/O define and adhere to recruitment timelines and processes to ensure vacancies are tracked, addressed and managed consistently across roles and functions?","responses":[{"text":"The department does not formally track or manage vacancies through defined processes.","score":1},{"text":"The department addresses vacancies as they arise, focusing only on immediate staffing needs without a structured vacancy management system.","score":2},{"text":"The department has initiated efforts to track vacancies and establish recruitment timelines, though these processes are not yet applied consistently across all units.","score":3},{"text":"The department has formalised and enacted structured vacancy management processes that define recruitment timelines and monitor adherence to reduce delays.","score":4},{"text":"The department has embedded proactive, data-informed vacancy management practices that use automated tracking and analytics to ensure timely and efficient recruitment across all roles.","score":5}]},{"id":5,"pm_function":"Staffing","focus_area":"Systems and Processes","question":"To what extent does recruitment autonomy facilitate timely filling of positions and maintain workforce stability across the M/D/O?","responses":[{"text":"The department does not have recruitment autonomy and depends entirely on external approvals, leading to delays in filling positions.","score":1},{"text":"The department has limited recruitment autonomy, applied inconsistently and with minimal effect on workforce stability.","score":2},{"text":"The department exercises partial recruitment autonomy, allowing moderate flexibility in filling key or priority positions.","score":3},{"text":"The department has functional recruitment autonomy within sanctioned limits, enabling timely staffing and improved workforce stability.","score":4},{"text":"The department has embedded decentralized recruitment autonomy, enabling agile decision-making and sustained workforce stability across roles and levels.","score":5}]},{"id":6,"pm_function":"Staffing","focus_area":"Resources, Roles and Capacity","question":"To what extent does the M/D/O proactively plan for attrition and align recruitment to maintain workforce adequacy?","responses":[{"text":"The department does not formally monitor or plan for staff attrition.","score":1},{"text":"The department records attrition data on an ad-hoc basis but does not systematically analyse it to inform recruitment or workforce planning.","score":2},{"text":"The department has initiated efforts to track and analyse attrition trends to guide periodic workforce adjustments.","score":3},{"text":"The department has enacted attrition analysis into recruitment planning to maintain workforce adequacy and continuity.","score":4},{"text":"The department has embedded predictive attrition analysis to anticipate staffing needs and align recruitment strategies for long-term workforce stability.","score":5}]},{"id":7,"pm_function":"Staffing","focus_area":"Resources, Roles and Capacity","question":"To what extent does the M/D/O allocate and utilize budgetary resources to meet staffing needs and maintain workforce stability?","responses":[{"text":"The department does not align staffing requirements with available budgetary resources.","score":1},{"text":"The department allocates budget for staffing reactively, with limited linkage to sanctioned positions or projected needs.","score":2},{"text":"The department allocates budgetary resources for staffing in alignment with approved positions, though without systematic monitoring.","score":3},{"text":"The department has formalised financial allocations that are aligned with staffing plans and monitors utilization to maintain workforce stability.","score":4},{"text":"The department has embedded budget-staffing integration systems, ensuring efficient resource utilization and proactive alignment with workforce priorities.","score":5}]},{"id":8,"pm_function":"Staffing","focus_area":"Systems and Processes","question":"To what extent does the M/D/O align staffing levels and deployment with established service delivery norms across units and regions?","responses":[{"text":"The department does not follow any defined norms for staffing and deployment.","score":1},{"text":"The department makes staffing decisions as they arise, relying on local discretion without a structured reference to service delivery norms.","score":2},{"text":"The department has initiated efforts to apply service delivery norms for staffing distribution, though implementation remains inconsistent across units.","score":3},{"text":"The department has formalised and enacted structured staffing systems guided by service delivery norms to ensure equitable deployment across functions and regions.","score":4},{"text":"The department has embedded norm-based staffing mechanisms with periodic reviews to promote equity, efficiency, and alignment with organisational priorities.","score":5}]},{"id":9,"pm_function":"Staffing","focus_area":"Systems and Processes","question":"To what extent does the M/D/O incorporate staff mobility patterns, transfers, and rotations into deployment planning to maintain workforce effectiveness?","responses":[{"text":"The department does not consider staff mobility or transfers in its deployment planning.","score":1},{"text":"The department manages staff transfers as they arise, without systematically assessing their impact on workforce distribution or service delivery.","score":2},{"text":"The department has initiated steps to incorporate mobility data into deployment planning to reduce service disruptions.","score":3},{"text":"The department has formalised and enacted processes that integrate transfer and rotation patterns into workforce deployment to ensure continuity and balanced staffing.","score":4},{"text":"The department has embedded dynamic deployment systems that anticipate mobility patterns, optimise workforce allocation, and support organisational agility.","score":5}]},{"id":10,"pm_function":"Staffing","focus_area":"Systems and Processes","question":"To what extent does the M/D/O conduct structured needs assessments and workload analyses to inform workforce planning and distribution?","responses":[{"text":"The department does not formally assess staffing needs or workload requirements.","score":1},{"text":"The department identifies staffing needs informally, based on supervisor inputs, without structured analysis or data support.","score":2},{"text":"The department has initiated needs assessments and workload reviews in select units to inform staffing distribution.","score":3},{"text":"The department has formalised and enacted systematic needs assessment and workload analysis processes to guide equitable staffing decisions.","score":4},{"text":"The department has embedded data-driven workload analytics that enable continuous workforce optimisation and informed planning.","score":5}]},{"id":11,"pm_function":"Staffing","focus_area":"Systems and Processes","question":"To what extent does the M/D/O allocate staff based on geographic, demographic, and functional considerations to maintain equity and effectiveness?","responses":[{"text":"The department does not formally consider spatial or demographic factors in staff allocation.","score":1},{"text":"The department accounts for regional differences informally, without a structured approach to address geographic or demographic variations.","score":2},{"text":"The department has initiated consideration of geographic and demographic factors in staffing decisions, though implementation remains uneven.","score":3},{"text":"The department has formalised and enacted structured processes to apply spatial and functional parameters for equitable staffing across service areas.","score":4},{"text":"The department has embedded geospatial and demographic analytics to ensure equitable, evidence-based staffing and effective service coverage across all regions.","score":5}]},{"id":12,"pm_function":"Staffing","focus_area":"Partnerships and Values","question":"To what extent are staffing decisions guided by compliance with reservation norms, gender equity goals, and equitable distribution across locations and cadres?","responses":[{"text":"The department does not monitor compliance with reservation or equity requirements.","score":1},{"text":"The department ensures compliance with equity norms as they arise, without consistent monitoring or documentation.","score":2},{"text":"The department has initiated monitoring mechanisms for reservation and equity compliance, though implementation varies across cadres and levels.","score":3},{"text":"The department has formalised and enacted systematic processes to ensure adherence to reservation norms and promote gender equity in staffing.","score":4},{"text":"The department has embedded equitable staffing practices that institutionalise diversity, inclusion, and compliance across all workforce levels.","score":5}]},{"id":13,"pm_function":"Staffing","focus_area":"Data and Technology","question":"To what extent does the M/D/O use technology (e.g., HRIS, dashboards, geospatial platforms) to monitor, manage, and optimize staffing levels?","responses":[{"text":"The department does not use digital tools or technology platforms for staffing management and relies entirely on manual processes to monitor workforce data.","score":1},{"text":"The department uses basic digital tools such as spreadsheets or emails on an ad hoc basis to track staffing information, but workflows are neither centralised nor streamlined.","score":2},{"text":"The department has initiated adoption of structured staffing management tools such as HRIS or dashboards to capture and monitor workforce data across functions.","score":3},{"text":"The department has formalised and enacted integrated digital platforms to manage staffing processes, enabling centralised tracking, automated reporting, and standardised workforce monitoring.","score":4},{"text":"The department has embedded advanced staffing technologies that support real-time workforce analytics, data-driven decision-making, and continuous optimisation of staffing efficiency and deployment.","score":5}]},{"id":14,"pm_function":"Staffing","focus_area":"Data and Technology","question":"To what extent is technology integrated into staffing workflows, including deployment, transfers, and vacancy monitoring, to strengthen workforce management?","responses":[{"text":"The department has not integrated technology for managing staffing workflows and continues to rely on manual systems.","score":1},{"text":"The department has informally adopted basic digital tools to support isolated staffing activities (e.g., posting orders or maintaining deployment records).","score":2},{"text":"The department has initiated integration of technology into key staffing workflows such as deployment tracking and vacancy management, with partial automation.","score":3},{"text":"The department has formalised consistent technology-enabled staffing workflows, improving coordination, timeliness, and transparency across workforce management functions.","score":4},{"text":"The department has embedded fully automated and interoperable digital systems across all staffing workflows, enabling seamless coordination, real-time data exchange, and evidence-based decision-making.","score":5}]},{"id":15,"pm_function":"Staffing","focus_area":"Data and Technology","question":"To what extent does the M/D/O collect, store, and analyze staffing data to inform evidence-based workforce planning and optimize distribution?","responses":[{"text":"The department does not systematically collect or store staffing data.","score":1},{"text":"The department collects staffing data inconsistently, maintaining it in fragmented or manually updated formats.","score":2},{"text":"The department has initiated mechanisms for systematic data collection and basic analysis for selected functions.","score":3},{"text":"The department has formalised and enacted centralised databases that consolidate staffing information and support regular analysis for workforce planning and decision-making.","score":4},{"text":"The department has embedded comprehensive data systems that enable predictive analytics, real-time reporting, and evidence-based workforce optimisation.","score":5}]},{"id":16,"pm_function":"Staffing","focus_area":"Data and Technology","question":"To what extent does the department analyse and strategically use staffing data to support its strategic staffing objectives?","responses":[{"text":"The department does not formally analyse staffing data or use it to inform workforce-related decisions.","score":1},{"text":"The department occasionally reviews staffing data for basic reporting or compliance on an ad-hoc basis.","score":2},{"text":"The department has initiated systematic analysis of staffing data to identify workforce gaps and inform select planning decisions.","score":3},{"text":"The department has formalised and enacted structured processes for analysing staffing trends and using insights to improve recruitment, deployment, and workforce stability.","score":4},{"text":"The department has embedded data-driven staffing strategies that use predictive analytics and scenario modelling to proactively align workforce planning with organisational goals.","score":5}]},{"id":17,"pm_function":"Recruitment","focus_area":"Resources, Roles and Capacity","question":"How are recruitment roles and responsibilities defined and allocated within your department?","responses":[{"text":"The department does not have formally defined recruitment roles and responsibilities.","score":1},{"text":"The department has managed recruitment functions on an ad-hoc basis, with unclear role assignment.","score":2},{"text":"The department has defined and allocated recruitment roles with clear responsibilities and coordination mechanisms, ensuring basic alignment with HR processes.","score":3},{"text":"The department has formalised recruitment roles, integrated them with broader HR functions, and ensures they are consistently followed.","score":4},{"text":"The department has embedded recruitment roles and responsibilities within strategic workforce planning, ensuring alignment with long-term organisational goals.","score":5}]},{"id":18,"pm_function":"Recruitment","focus_area":"Resources, Roles and Capacity","question":"How does your department ensure continuous learning and development for recruitment staff?","responses":[{"text":"The department currently does not have a structured learning and development program for recruitment staff.","score":1},{"text":"The department has conducted ad-hoc or need-based training for recruitment staff.","score":2},{"text":"The department has implemented basic training programs for recruitment staff on foundational recruitment processes, including sourcing, selection, and adherence to recruitment guidelines.","score":3},{"text":"The department has formalised and enacted structured and periodic training on advanced recruitment topics (e.g., structured interviews, inclusive hiring), with dedicated resources and alignment with organisational goals.","score":4},{"text":"The department has embedded continuous recruiter capacity building into workforce planning, delivering specialised training (e.g., HR analytics, emerging technologies) in alignment with strategic recruitment needs.","score":5}]},{"id":19,"pm_function":"Recruitment","focus_area":"Resources, Roles and Capacity","question":"To what extent is the department allocating dedicated human resources to support recruitment activities?","responses":[{"text":"The department does not have dedicated staff for recruitment.","score":1},{"text":"The department has assigned recruitment responsibilities to staff on an informal, ad-hoc basis without defined roles, training, or dedicated time.","score":2},{"text":"The department has designated specific staff with clear recruitment responsibilities, though these staff often balance recruitment with other duties and have limited specialised training.","score":3},{"text":"The department has formalised a fully-staffed team with specialised roles and responsibilities for recruitment planning and execution and integrated with broader HR systems.","score":4},{"text":"The department has embedded a fully staffed and specialised recruitment team integrated into its organisational workforce planning strategy.","score":5}]},{"id":20,"pm_function":"Recruitment","focus_area":"Systems and Processes","question":"How well-documented and maintained are recruitment records in your department?","responses":[{"text":"The department does not document any part of its recruitment processes.","score":1},{"text":"The department has informally documented selected recruitment processes, but records are incomplete, inconsistently maintained, and not aligned with official guidelines (e.g., MOP, reservation rules).","score":2},{"text":"The department has maintained documented workflows for key recruitment stages, ensuring compliance with Manual of Office Procedure and reservation policies.","score":3},{"text":"The department has formalised and enacted documentation for recruitment, regularly reviewing and updating them based on feedback and alignment with emerging norms and government practices.","score":4},{"text":"The department has embedded dynamic documentation systems for recruitment, with real-time updates, version control, and digital platforms that ensure secure, accessible, and policy-aligned record-keeping.","score":5}]},{"id":21,"pm_function":"Recruitment","focus_area":"Data and Technology","question":"To what extent is the department using digital tools and technologies to manage and improve recruitment processes?","responses":[{"text":"The department does not use digital tools or technology platforms for recruitment and relies entirely on manual processes to manage applications and track candidate progress.","score":1},{"text":"The department uses basic digital tools such as email or shared folders on an ad-hoc basis to manage parts of the recruitment process, but workflows are neither centralised nor streamlined.","score":2},{"text":"The department has initiated adoption of structured recruitment tools such as ATS (Applicant Tracking System) or job portals to track candidate progress and automate initial stages of screening.","score":3},{"text":"The department has formalised and enacted digital platforms to manage end-to-end recruitment processes—including centralised tracking, automated communication, digital documentation, and standardised candidate evaluation.","score":4},{"text":"The department has embedded advanced recruitment technologies that support real-time tracking, data-driven hiring decisions, and continuous optimisation of workflows to improve recruitment efficiency and outcome.","score":5}]},{"id":22,"pm_function":"Recruitment","focus_area":"Data and Technology","question":"To what extent is the department integrating technology to manage and improve recruitment processes?","responses":[{"text":"The department has not integrated technology for managing the recruitment processes.","score":1},{"text":"The department has informally integrated basic technology to support some parts of the recruitment activities.","score":2},{"text":"The department has established technology integration into its core recruitment functions by adopting digital platforms (e.g., ATS or CRM), with key workflows now digitised and used consistently.","score":3},{"text":"The department has formalised consistent practices around technology integration, with coordination across recruitment stages and growing reliance on digital tools for process efficiency.","score":4},{"text":"The department has embedded digital recruitment technologies across all stages, leveraging real-time data, automation, and analytics enabling automation, data-driven decision-making, and coordination across recruitment stages.","score":5}]},{"id":23,"pm_function":"Recruitment","focus_area":"Data and Technology","question":"To what extent does the department collect and manage recruitment data to support its strategic recruitment objectives?","responses":[{"text":"The department does not collect any data on recruitment or related metrics.","score":1},{"text":"The department has collected some basic recruitment data (such as applicant numbers or sources) in an ad hoc and unstructured manner.","score":2},{"text":"The department has established systems to collect and maintain key recruitment metrics (such as time-to-hire and cost-per-hire) using defined templates or tools, but data collection is not yet fully consistent or centralised.","score":3},{"text":"The department has formalised data collection and management for comprehensive recruitment data (covering key metrics such as time-to-hire, cost-per-hire, and candidate sources) in alignment with data governance standards.","score":4},{"text":"The department has embedded systems to collect, centrally manage, and regularly review comprehensive recruitment data in real time, ensuring accuracy, consistency, and alignment with strategic recruitment objectives.","score":5}]},{"id":24,"pm_function":"Recruitment","focus_area":"Data and Technology","question":"To what extent does the department analyse and strategically use recruitment data to support its strategic recruitment objectives?","responses":[{"text":"The department does not analyse or use recruitment data to inform hiring decisions.","score":1},{"text":"The department has informally tracked some recruitment data (e.g., number of applications) but does not analyse or apply it toward strategic recruitment objectives.","score":2},{"text":"The department has established systems to analyse basic recruitment data, using it to inform operational improvements aligned with broad recruitment goals.","score":3},{"text":"The department has formalised and enacted data analysis into recruitment planning and decision-making, using insights to align hiring with workforce needs and its strategic objectives.","score":4},{"text":"The department has embedded real-time, organisation-wide systems to collect, analyse, and apply recruitment data for continuously optimising hiring strategies in alignment with long-term workforce and organisational goals.","score":5}]},{"id":25,"pm_function":"Recruitment","focus_area":"Resources, Roles and Capacity","question":"What level of budget is the department currently maintaining to support its recruitment activities?","responses":[{"text":"The department does not allocate any specific budget for recruitment activities.","score":1},{"text":"The department allocates a minimal recruitment budget on an ad-hoc basis, without structured planning or long-term commitment.","score":2},{"text":"The department has enabled a planned recruitment budget that supports regular hiring activities but has limited adaptability to shifting recruitment needs.","score":3},{"text":"The department has formalised and enacted a structured recruitment budget that consistently finances regular recruitment activities, including job advertisements, necessary tools, and standard processes, in line with financial guidelines.","score":4},{"text":"The department has embedded recruitment budgeting within broader workforce planning processes, with a flexible, regularly reviewed budget that supports long-term, strategic, and evolving hiring objectives.","score":5}]},{"id":26,"pm_function":"Recruitment","focus_area":"Resources, Roles and Capacity","question":"To what extent does the department providing dedicated physical and digital infrastructure to support recruitment activities?","responses":[{"text":"The department does not provide any dedicated physical or digital infrastructure to support recruitment activities.","score":1},{"text":"The department has shared or makeshift spaces and basic digital tools (e.g., laptops, projectors) for recruitment activities on an ad-hoc basis, without structured planning.","score":2},{"text":"The department has established dedicated physical spaces and basic digital infrastructure (e.g., interview rooms, internet access) to support planned recruitment activities such as interviews and assessment centers.","score":3},{"text":"The department maintains well-equipped physical and digital environments that support structured recruitment activities, including dedicated interview spaces, recruitment event venues, and digital tools for virtual recruitment.","score":4},{"text":"The department has embedded advanced physical and digital recruitment infrastructure, including state-of-the-art interview rooms, immersive virtual recruitment platforms, and smart event venues, fully integrated to support continuous, flexible, and strategic recruitment processes.","score":5}]},{"id":27,"pm_function":"Recruitment","focus_area":"Partnerships and Values","question":"How does your department make the recruitment process a fair and positive experience for candidates?","responses":[{"text":"The department does not have any system in place to ensure a fair and positive recruitment experience for candidates.","score":1},{"text":"The department has informal practices in place to ensure a fair recruitment experience, such as providing job descriptions and acknowledging applications, but these efforts lack consistency and structure.","score":2},{"text":"The department has established some processes to standardise the candidate experience, such as standard interview procedures and clear response timelines, reflecting basic principles of fairness and transparency.","score":3},{"text":"The department has formalised and enacted mechanisms to ensure a positive recruitment experience by standardising interactions (e.g., using set interview formats, providing basic feedback) and aligning with the its core values.","score":4},{"text":"The department has embedded transparency and fairness into its recruitment process by offering a superior candidate experience with personalised engagement, proactive communication, and timely, constructive feedback, fully reflecting civil service values at every stage.","score":5}]},{"id":28,"pm_function":"Recruitment","focus_area":"Partnerships and Values","question":"To what extent does the department collaborate with external stakeholders for recruitment efforts?","responses":[{"text":"The department does not engage with any external stakeholders for recruitment efforts.","score":1},{"text":"The department has occasional engagements with external stakeholders for recruitment efforts, such as universities or recruitment agencies, but these efforts are informal, without structured processes or defined goals.","score":2},{"text":"The department has explored avenues such as career fairs and job-related events to engage with external stakeholders through with an emerging approach to establish more strategic partnerships.","score":3},{"text":"The department has formalised engagements with external partners, such as universities and recruitment agencies, through structured events, joint recruitment planning to attract a diverse talent pool.","score":4},{"text":"The department has embedded engagements with external stakeholders (eg. co-hosting recruitment events or piloting new recruitment technologies) in a collaborative, strategic manner.","score":5}]},{"id":29,"pm_function":"Recruitment","focus_area":"Partnerships and Values","question":"To what extent are the department's recruitment partnerships formalised?","responses":[{"text":"The department does not have any formalised partnerships with external stakeholders for recruitment efforts.","score":1},{"text":"The department has informal or ad-hoc external partnerships for recruitment, with no formal agreements or structured processes in place.","score":2},{"text":"The department has established external partnerships for recruitment, with basic agreements and some structured processes for collaboration.","score":3},{"text":"The department has formalised external partnerships for recruitment, with formal agreements and clear objectives.","score":4},{"text":"The department has embedded external partnerships for recruitment into its strategy, with continuous, well-governed collaborations and measurable outcomes.","score":5}]},{"id":30,"pm_function":"Learning and Development","focus_area":"Resources, Roles and Capacity","question":"To what extent is the department allocating dedicated human resources to support learning and development activities?","responses":[{"text":"The department does not have any staff responsible for supporting learning and development activities.","score":1},{"text":"The department engages general staff in learning and development activities on an ad hoc basis, without sufficient role clarity.","score":2},{"text":"The department has designated a Learning and Development team with limited specialisation and expertise.","score":3},{"text":"The department has a dedicated L&D team or personnel who are consistently engaged in planning and coordinating capacity-building initiatives.","score":4},{"text":"The department has embedded a specialised L&D team with the responsibility of delivering high-quality training aligned with strategic workforce development goals.","score":5}]},{"id":31,"pm_function":"Learning and Development","focus_area":"Resources, Roles and Capacity","question":"How are roles and responsibilities for learning and development defined and allocated within your department?","responses":[{"text":"The department does not define or allocate the Learning and Development roles and responsibilities.","score":1},{"text":"The department relies on informal or ad hoc arrangements for L&D responsibilities, with unclear role boundaries.","score":2},{"text":"The department has defined basic L&D roles and responsibilities, with some clarity on allocation and efforts to reduce overlaps.","score":3},{"text":"The department has formalised L&D roles with clear responsibilities, aligned with workforce planning and talent management, ensuring learning initiatives align with long-term organisational goals.","score":4},{"text":"The department has embedded L&D roles within its broader organisational strategy, ensuring alignment with workforce planning and long-term HR priorities.","score":5}]},{"id":32,"pm_function":"Learning and Development","focus_area":"Resources, Roles and Capacity","question":"How does your department provide continuous learning and development opportunities for L&D staff?","responses":[{"text":"The department does not provide learning and development opportunities for L&D staff.","score":1},{"text":"The department has provided L&D opportunities to L&D staff on an ad-hoc basis such as need-based exposure to learning opportunities.","score":2},{"text":"The department has provided foundational learning opportunities for L&D staff, including basic trainings, though structured learning pathways remain limited.","score":3},{"text":"The department has formalised L&D opportunities for L&D staff through formal training plans, recognised certifications, and regular capacity-building programs to strengthen technical, functional, and behavioural competencies.","score":4},{"text":"The department has embedded continuous L&D opportunities for L&D staff into its talent development strategy, with defined learning pathways.","score":5}]},{"id":33,"pm_function":"Learning and Development","focus_area":"Systems and Processes","question":"How does your department ensure collaboration between learning and development unit and other functions?","responses":[{"text":"The department does not collaborate or formally coordinate with other functions in delivering training.","score":1},{"text":"The department has informal collaboration with the Learning and Development unit and with other functions on ad-hoc training initiatives.","score":2},{"text":"The department has established mechanisms for collaboration with other functions to align learning and development programs with employee needs, career development pathways, and organisational priorities.","score":3},{"text":"The department has formalised cross-departmental collaboration, engaging senior leadership to ensure training initiatives support workforce planning, operational goals, and continuous improvement.","score":4},{"text":"The department has integrated its L&D team as a strategic partner to leadership, providing insights into skill gaps, workforce readiness, and training impact to inform decision-making and shape the organisation's talent strategy.","score":5}]},{"id":34,"pm_function":"Learning and Development","focus_area":"Systems and Processes","question":"How does your department prioritise learner engagement and design in its training programs?","responses":[{"text":"The department does not have a structured approach to training design, with limited focus or no focus on learner engagement.","score":1},{"text":"The department has informal and inconsistent approaches to learner engagement and design of training programs using ad-hoc methods based on facilitator preference or immediate feedback, without systematic planning or design.","score":2},{"text":"The department has incorporated structured learner engagement strategies, such as interactive content to enhance participation and training outcomes.","score":3},{"text":"The department has formalised learner engagement in training programs using advanced learner-centric techniques—including simulations, gamification, and scenario-based modules.","score":4},{"text":"The department has embedded an adaptive and data informed training design process to personalise learner journeys and continuously enhance training program effectiveness.","score":5}]},{"id":35,"pm_function":"Learning and Development","focus_area":"Systems and Processes","question":"How structured and aligned are the department's L&D processes?","responses":[{"text":"The department does not have a structured L&D processes, delivering training primarily to meet compliance requirements.","score":1},{"text":"The department has informal L&D processes, applied inconsistently across teams, with limited linkage to organisational priorities or competency frameworks.","score":2},{"text":"The department has established L&D processes, however are not yet fully aligned with core organisational priorities and emerging competency-based frameworks.","score":3},{"text":"The department has formalised and integrated competency-based capacity building processes for each role, while mapping and linking required competencies to training, career growth, and workforce planning.","score":4},{"text":"The department has embedded a clearly defined and consistent competency-based L&D processes within its overall workforce strategy.","score":5}]},{"id":36,"pm_function":"Learning and Development","focus_area":"Systems and Processes","question":"How structured and formalised are the department's training programs in terms of their design and delivery?","responses":[{"text":"The department does not have a formalised and structured training programs relying on unstructured training design and delivery.","score":1},{"text":"The department has informal and ad-hoc training programs that focus on foundational or compliance-based topics, with limited structure or formalisation.","score":2},{"text":"The department has designed and delivered structured and formalised training programs covering functional, behavioural, and domain-specific competencies, with periodic updates to reflect evolving organisational needs.","score":3},{"text":"The department has formalised role- and level-specific training programs designed around career paths and workforce planning priorities, in alignment with organisational priorities.","score":4},{"text":"The department has embedded and institutionalised training design and delivery systems that leverage digital platforms to align learning with individual career trajectories, organisational goals, and competencies of the officials.","score":5}]},{"id":37,"pm_function":"Learning and Development","focus_area":"Systems and Processes","question":"How well-documented and updated are L&D records in your department?","responses":[{"text":"The department does not have a formal system for documenting L&D activities, relying on inconsistent and ad-hoc recording practices.","score":1},{"text":"The department has informal and ad-hoc documentation practices, with limited consistency in recording training activities and no centralised system for storage or updates.","score":2},{"text":"The department has established a centralised repository for training materials, policies, and outcomes, with periodic updates to ensure accessibility and usability.","score":3},{"text":"The department has formalised well-documented and regularly reviewed training materials, policies, and procedures, ensuring alignment with evolving organisational needs and practices.","score":4},{"text":"The department has embedded systems that enable real-time updates and organisation-wide access to training records, ensuring accuracy, relevance, and integration with broader knowledge management practices.","score":5}]},{"id":38,"pm_function":"Learning and Development","focus_area":"Systems and Processes","question":"How well do the department's learning and development efforts align with its strategic learning objectives?","responses":[{"text":"The department does not have an alignment between learning and development efforts and its strategic learning objectives.","score":1},{"text":"The department has informal learning and development activities that primarily respond to immediate or reactive training needs, with limited strategic focus.","score":2},{"text":"The department has established alignment between learning and development efforts and its strategic learning objectives.","score":3},{"text":"The department has formalised the alignment of L&D efforts with workforce planning and its strategic learning objectives.","score":4},{"text":"The department has embedded L&D efforts within its strategic and workforce planning systems to proactively drive learning agendas aligned with evolving organisational objectives.","score":5}]},{"id":39,"pm_function":"Learning and Development","focus_area":"Data and Technology","question":"To what extent is the department using digital tools and technologies to manage and improve learning and development processes?","responses":[{"text":"The department does not have any digital tools or technologies for managing learning, relying on manual processes.","score":1},{"text":"The department has used basic digital tools, such as email and shared drives, on an ad-hoc basis to manage learning and development processes.","score":2},{"text":"The department has implemented digital tools and technology platforms (such as Learning Management Systems (LMS), video conferencing tools, and content-sharing platforms) to manage learning and development processes in a structured manner.","score":3},{"text":"The department has formalised the adoption of digital platforms to plan and manage learning, track participation, and monitor progress across various learning and development processes.","score":4},{"text":"The department has integrated diverse technology tools and platforms to plan, manage, and enhance learning and development processes ensuring strategic alignment with organisational goals.","score":5}]},{"id":40,"pm_function":"Learning and Development","focus_area":"Data and Technology","question":"To what extent is the department integrating technology to manage and improve learning and development processes?","responses":[{"text":"The department has not integrated any technology for managing or enhancing learning and development processes.","score":1},{"text":"The department has informally integrated basic technology into learning and development activities, but lacks a structured or consistent approach.","score":2},{"text":"The department has adopted technology and tools, such as government-approved learning systems and digital resources, to support structured learning and development activities.","score":3},{"text":"The department has formalised integration of multiple technology tools, including discussion forums, digital resource libraries, and AI-based learning platforms, to enhance engagement, personalise learning, and support decision-making.","score":4},{"text":"The department has embedded diverse technology tools and platforms into its learning and development ecosystem, ensuring real-time updates, personalised learning pathways, and data-driven insights that align with strategic organisational goals.","score":5}]},{"id":41,"pm_function":"Learning and Development","focus_area":"Data and Technology","question":"To what extent does the department collect and manage learning and development data to support its strategic learning objectives?","responses":[{"text":"The department does not collect or manage L&D data in a structured manner.","score":1},{"text":"The department has collected some basic L&D data such as training deliveries, learner feedback etc. to drive learning and development, however data collection is inconsistent, fragmented storage.","score":2},{"text":"The department has enabled structured collection of key L&D metrics using defined frameworks and tools.","score":3},{"text":"The department has formalised comprehensive data system for collecting, validating, and centrally managing L&D data in alignment with data governance standards.","score":4},{"text":"The department has embedded an integrated real-time L&D data systems to ensure data-driven learning and development in alignment with strategic objectives.","score":5}]},{"id":42,"pm_function":"Learning and Development","focus_area":"Data and Technology","question":"To what extent does the department analyse and use learning and development data to support its strategic learning objectives?","responses":[{"text":"The department does not analyse L&D data to drive decisions.","score":1},{"text":"The department has conducted basic descriptive analysis (such as participation and completion rates etc.) on an ad-hoc basis, however the analysis lacks strategic alignment.","score":2},{"text":"The department has produced standardised reports and dashboards to regularly analyse L&D data, such as completion rates and feedback, to improve training content and delivery.","score":3},{"text":"The department has formalised advanced analytics to identify patterns and correlations in alignment with competency-based capacity building framework and strategic priorities.","score":4},{"text":"The department has embedded AI-powered analytics to drive strategic priorities and innovations such as personalised learning, training effectiveness assessment etc.","score":5}]},{"id":43,"pm_function":"Learning and Development","focus_area":"Resources, Roles and Capacity","question":"What level of budget is the department currently maintaining to support its learning and development activities?","responses":[{"text":"The department does not allocate any specific budget for learning and development activities.","score":1},{"text":"The department has allocated a minimal L&D budget on an ad-hoc basis, without structured planning or long-term commitment.","score":2},{"text":"The department has maintained planned L&D budget in line with the government policies/guidelines (such as National Training Policy etc.) but with limited flexibility to support emerging needs.","score":3},{"text":"The department has formalised an adequate and structured L&D budget, aligned with capacity-building goals and adaptable to changing requirements.","score":4},{"text":"The department has embedded a L&D budget that is strategically aligned, regularly reviewed, and flexible enough to support ongoing and diverse training needs.","score":5}]},{"id":44,"pm_function":"Learning and Development","focus_area":"Systems and Processes","question":"To what extent does the department ensure relevant learning materials are available to its employees?","responses":[{"text":"The department does not provide structured learning materials to its employees.","score":1},{"text":"The department provides some learning materials that are generic and only occasionally updated, with limited alignment to specific roles.","score":2},{"text":"The department has maintained a set of updated learning materials that are periodically reviewed and aligned with departmental goals.","score":3},{"text":"The department has formalised role-specific learning materials that are updated regularly and aligned with employee responsibilities and career paths.","score":4},{"text":"The department has embedded a system for delivering high-quality, curated learning content that is continuously updated, tailored to roles and career stages, and aligned with strategic priorities and evolving skill needs.","score":5}]},{"id":45,"pm_function":"Learning and Development","focus_area":"Resources, Roles and Capacity","question":"To what extent does the department providing dedicated physical and digital spaces that support learning and development activities?","responses":[{"text":"The department does not provide any dedicated physical or digital infrastructure for learning and development.","score":1},{"text":"The department has shared or makeshift spaces and basic digital infrastructure (e.g., laptops or projectors) on an ad-hoc basis for learning activities.","score":2},{"text":"The department has established dedicated physical spaces and basic digital infrastructure (e.g., projectors, internet access) to support planned learning and development sessions.","score":3},{"text":"The department has formalised well-equipped physical and digital environments that support structured, diverse learning formats such as workshops, group learning, and blended training approaches.","score":4},{"text":"The department has embedded advanced physical and digital learning spaces (including smart classrooms and immersive virtual platforms) to support continuous, flexible, and strategic learning and development delivery.","score":5}]},{"id":46,"pm_function":"Learning and Development","focus_area":"Partnerships and Values","question":"To what extent does the department integrate its culture and values into learning and development (L&D) activities?","responses":[{"text":"The department does not integrate organisational culture or values into its learning and development efforts.","score":1},{"text":"The department has informally referenced organisational values during selected training sessions.","score":2},{"text":"The department has established systems to support the inclusion of core values in some training programs, with examples and content beginning to reflect organisational culture.","score":3},{"text":"The department has formalised the integration of its organisational culture and values (such as integrity, service, and accountability) into training content and delivery methods.","score":4},{"text":"The department has embedded its organisational values into all L&D programs, reflecting its values across program design, facilitation, learning objectives, and assessments to strengthen culture as a strategic asset.","score":5}]},{"id":47,"pm_function":"Learning and Development","focus_area":"Partnerships and Values","question":"How does the department foster a culture of continuous learning?","responses":[{"text":"The department has no systems, initiatives, or structures in place to foster or promote continuous learning.","score":1},{"text":"The department has informal learning sessions but lacks consistent promotion or integration into its core functions.","score":2},{"text":"The department has promoted learning regularly, with some structure in place, though it's not fully embedded as a core function.","score":3},{"text":"The department has formalised and enacted continuous learning with regular initiatives, and learning is seen as a key part of its development.","score":4},{"text":"The department has embedded continuous learning culture where employees at all levels are engaging in ongoing development, and their commitment to learning is being recognised and encouraged.","score":5}]},{"id":48,"pm_function":"Learning and Development","focus_area":"Partnerships and Values","question":"How does the department ensure its learning and development processes are inclusive and accessible to its employees?","responses":[{"text":"The department has not integrated inclusivity and accessibility principles into its learning and development processes.","score":1},{"text":"The department has occasionally and informally referenced inclusivity and accessibility principles in selected training sessions.","score":2},{"text":"The department has established systems to integrate inclusivity and accessibility principles into its training programs.","score":3},{"text":"The department has formalised practices to integrate inclusivity and accessibility principles in training programs.","score":4},{"text":"The department has embedded inclusivity and accessibility principles in all learning and development in all its training programs ensuring relevance for all employees.","score":5}]},{"id":49,"pm_function":"Learning and Development","focus_area":"Partnerships and Values","question":"To what extent is the department developing and integrating external partnerships to achieve its strategic learning objectives?","responses":[{"text":"The department does not have any partnerships to support its strategic learning objectives.","score":1},{"text":"The department has informal partnerships for training but lacks a structured approach or alignment with its strategic learning objectives.","score":2},{"text":"The department has established basic formal partnerships with external providers, with clear objectives guiding collaboration in alignment with its strategic objectives.","score":3},{"text":"The department has formalised partnerships with external providers to support training and strategic learning objectives.","score":4},{"text":"The department has embedded strategic, ecosystem-based partnerships across multiple sectors, enhancing learning and development through collaborative innovations and shared resources to achieve its strategic learning objectives.","score":5}]},{"id":50,"pm_function":"Learning and Development","focus_area":"Partnerships and Values","question":"How does the department collaborate with external stakeholders to enhance its learning and development programs?","responses":[{"text":"The department does not collaborate with external partners for learning and development.","score":1},{"text":"The department has informal and ad-hoc collaborations with external stakeholders, such as occasional workshops or events for learning and development programs.","score":2},{"text":"The department has established regular collaborations with external stakeholders, participating in structured programs and events to support learning and development efforts.","score":3},{"text":"The department has formalised collaborations with external stakeholders to co-create tailored, high-quality learning programs that address specific sector specific needs and emerging skills of the officials.","score":4},{"text":"The department has embedded strategic, long-term partnerships for Learning and Development into its strategy towards leveraging emerging technologies and trends to advance organisational objectives.","score":5}]},{"id":51,"pm_function":"Performance Management","focus_area":"Resources, Roles and Capacity","question":"To what extent is the department allocating adequate human resources to support performance management activities?","responses":[{"text":"The department does not have dedicated staff for performance management.","score":1},{"text":"The department has limited staff to handle compliance-driven performance management activities (such as annual reviews, regulatory reporting etc.), however the staffs are inadequate to drive strategic alignment.","score":2},{"text":"The department has a dedicated performance management team with clearly defined roles to carry out core performance management activities, such as goal-setting and evaluations.","score":3},{"text":"The department has formalised a fully-staffed team with specialised roles, regular trainings and standardised processes and integrated with broader HR systems.","score":4},{"text":"The department has embedded a dedicated team that is strategically aligned with organisational objectives.","score":5}]},{"id":52,"pm_function":"Performance Management","focus_area":"Resources, Roles and Capacity","question":"How does your department ensure structured continuous learning and development for performance management staff?","responses":[{"text":"The department does not have learning and development interventions for performance management staff to address knowledge gaps in goal-setting, performance appraisals, feedbacks etc.","score":1},{"text":"The department has organised learning and development interventions on an ad-hoc basis, covering the APAR guidelines, performance measurement etc., however the content lacked standardisation and alignment with organisational priorities.","score":2},{"text":"The department has provided structured learning and development interventions, with a focus on foundational aspects such as goal-setting, regular feedback etc. on a somewhat consistent basis.","score":3},{"text":"The department has formalised learning and development interventions that systematically integrates specific aspects of competency-based performance management such as goal-cascading, performance measurement, data systems, feedback and learning alignment etc.","score":4},{"text":"The department has embedded learning and development interventions to equip performance management staffs towards to consistently apply understanding and skills towards fostering high performance culture.","score":5}]},{"id":53,"pm_function":"Performance Management","focus_area":"Resources, Roles and Capacity","question":"How are performance management roles and responsibilities defined and allocated within your department?","responses":[{"text":"The department has not defined and/or allocated the performance management roles and responsibilities.","score":1},{"text":"The department has informally assigned basic roles on an ad-hoc basis in performance management as per the compliance requirements such as APAR guidelines, however the responsibilities are inconsistent, reactive and not formally documented.","score":2},{"text":"The department has clearly delineated roles and accountability frameworks as per organisational guidelines.","score":3},{"text":"The department has formalised performance management roles and explicitly linked to the organisational objectives (such as goals cascading, structured evaluations etc.).","score":4},{"text":"The department has embedded and fully integrated the performance management roles into the workforce planning to align individual goals with organisational goals.","score":5}]},{"id":54,"pm_function":"Performance Management","focus_area":"Resources, Roles and Capacity","question":"How does your department train its employees on providing effective feedback as part of performance management?","responses":[{"text":"The department does not have feedback mechanism as part of its performance management.","score":1},{"text":"The department has offered sporadic feedback training on an ad-hoc basis, with focus on good practices during annual performance appraisal reviews, however the follow-up support doesn't exist.","score":2},{"text":"The department has organised regular training, covering feedback delivery, coaching skills, engagement techniques etc. to strengthen performance management effectiveness.","score":3},{"text":"The department has formalised feedback conversation into performance management and enhanced with data-driven methods, AI-powered tools and customised development plans.","score":4},{"text":"The department has embedded feedback conversations and integrated advanced techniques (such as real-time feedback tools, behavioral analytics etc.) to drive continuous improvement and alignment with organisational priorities.","score":5}]},{"id":55,"pm_function":"Performance Management","focus_area":"Systems and Processes","question":"How structured and aligned are the department's performance management processes?","responses":[{"text":"The department does not have formal performance management system in alignment with guidelines such as APAR etc.","score":1},{"text":"The department has some performance management process, however the processes are ad-hoc using APAR as reactive reference.","score":2},{"text":"The department has standardised and leveraged technology-enabled system (such as Human Resource Management System) to streamline compliance with guidelines such as APAR etc.","score":3},{"text":"The department has formalised performance management processes and are strategically aligned through systematic processes such as structured goal setting, goal-alignment between individual and departmental level etc.","score":4},{"text":"The department has embedded performance management process to align performance outcomes with organisational priorities.","score":5}]},{"id":56,"pm_function":"Performance Management","focus_area":"Systems and Processes","question":"To what extent does your department emphasise feedback as part of performance management?","responses":[{"text":"The department does not follow structured approach to performance feedback.","score":1},{"text":"The department has included the performance feedback conversations as part of Annual Performance Reviews, however the conversations are retrospective, compliance-focussed rather than developmental.","score":2},{"text":"The department has provided structured feedback at regular intervals with basic coaching elements.","score":3},{"text":"The department has formalised continuous feedback through systematic feedback and coaching frameworks, structured check-ins and Individual Development Plans.","score":4},{"text":"The department has embedded continuous feedback and aligned individual development plans with performance management objectives.","score":5}]},{"id":57,"pm_function":"Performance Management","focus_area":"Systems and Processes","question":"How well-documented and updated are performance management records in your department?","responses":[{"text":"The department does not have formal documentation of performance management records.","score":1},{"text":"The department has basic performance documentation on an ad-hoc basis, however the records are stored in disparate systems or physical files.","score":2},{"text":"The department has consistently documented performance data in centralised system to ensure basic reporting and compliance with guidelines.","score":3},{"text":"The department has formalised documentation of performance management records and has systematically leveraged to inform talent management decisions.","score":4},{"text":"The department has embedded dynamic management of performance records and its linkage with strategic objectives.","score":5}]},{"id":58,"pm_function":"Performance Management","focus_area":"Systems and Processes","question":"How effectively is the department setting performance goals in line with the organisation's strategy?","responses":[{"text":"The department does not follow formal goal-setting processes.","score":1},{"text":"The department has set its goals on an ad-hoc basis as per the guidelines, however the goals lack strategic alignment and are primarily compliance driven.","score":2},{"text":"The department has utilised structured goal-setting frameworks to set clear measurable goals in alignment with guidelines.","score":3},{"text":"The department has formalised goal-setting and aligned with broader organisational strategy through regular reviews.","score":4},{"text":"The department has embedded dynamic goal-setting in alignment with its strategic objectives.","score":5}]},{"id":59,"pm_function":"Performance Management","focus_area":"Data and Technology","question":"To what extent is the department using digital tools and technologies to improve performance management processes?","responses":[{"text":"The department does not utilise digital tools to improve performance management processes.","score":1},{"text":"The department has utilised basic digital tools (such as shared drives, spreadsheets etc.) to track performance goals and reviews, however the utilisation remains sporadic, fragmented and lacks standardisation.","score":2},{"text":"The department has established a centralised Performance Management system with automated workflows for goal-setting reminders, deadline reminders, etc.","score":3},{"text":"The department has formalised an integrated digital platform (such as Human Resource Management System) with structured workflows and analytics to systematically track performance goals and reviews.","score":4},{"text":"The department has embedded AI-enhanced digital Performance Management platform with technological features such as dynamic goal-adjustment, automated insights etc. to drive strategic decisions.","score":5}]},{"id":60,"pm_function":"Performance Management","focus_area":"Data and Technology","question":"To what extent is the department integrating technology to manage performance management processes?","responses":[{"text":"The department does not have digital tools or systems for performance tracking, reviews, evaluations.","score":1},{"text":"The department has adopted basic digital systems (such as APAR performance data entry) to integrate performance data to address performance tracking needs, however the technological integration is reactive and limited.","score":2},{"text":"The department has leveraged system-level integration using data interoperability and governance frameworks for core performance management tasks.","score":3},{"text":"The department has integrated digital performance management platform with goal-setting, feedback mechanisms and performance evaluation toward data-driven decision-making.","score":4},{"text":"The department has embedded fully integrated performance management system to align performance tracking with organisational goals.","score":5}]},{"id":61,"pm_function":"Performance Management","focus_area":"Data and Technology","question":"To what extent does the department collect and manage performance data to support its strategic performance management objectives?","responses":[{"text":"The department does not collect and/or manage performance data to support its strategic performance management objectives.","score":1},{"text":"The department has informally collected basic performance data such as review dates, ratings etc. to drive performance measurement, however data collection and management remains fragmented.","score":2},{"text":"The department has enabled structured collection of key performance metrics such as goal completion rates, review ratings using defined frameworks and tools.","score":3},{"text":"The department has formalised comprehensive data system for systematic performance data capture (covering key metrics such as employee engagement scores, performance trends) in alignment with data governance standards.","score":4},{"text":"The department has embedded a integrated real-time performance data system to ensure data-driven performance management.","score":5}]},{"id":62,"pm_function":"Performance Management","focus_area":"Data and Technology","question":"To what extent does the department analyse and strategically use performance data to support its strategic performance management objectives?","responses":[{"text":"The department does not analyse performance data to drive support its strategic performance management objectives.","score":1},{"text":"The department has conducted basic descriptive analysis (such as completion rates, average ratings etc.) on an ad-hoc basis, however the analysis lacks strategic alignment.","score":2},{"text":"The department has produced standardised reports and dashboards to track performance trends.","score":3},{"text":"The department has formalised the analysis and use of data identify trends, inform timely course corrections, and drive alignment between individual, team, and organisational performance goals.","score":4},{"text":"The department has embedded data-driven decision-making to drive proactive adjustments and continuous optimisation of its performance strategies, and inform strategic PM objectives.","score":5}]},{"id":63,"pm_function":"Performance Management","focus_area":"Resources, Roles and Capacity","question":"What level of budget is the department currently maintaining to support its performance management activities?","responses":[{"text":"The department does not have dedicated budget for performance management activities.","score":1},{"text":"The department has followed reactive budget allocations for urgent needs (such as compliance tools, mandatory training etc.), however the budget is inconsistent or insufficient.","score":2},{"text":"The department has defined annual budget to support core performance management activities (such as manager training, standardised evaluation tools, regular reviews etc.).","score":3},{"text":"The department has formalised strategic budgeting that aligns with performance management objectives, including investment in analytics tools and development programs.","score":4},{"text":"The department has embedded dynamic budgeting that integrates organisational strategy and data-driven investments.","score":5}]},{"id":64,"pm_function":"Performance Management","focus_area":"Resources, Roles and Capacity","question":"To what extent does the department use performance evaluation frameworks (tools and templates, etc.) for measuring performance?","responses":[{"text":"The department does not utilise structured performance evaluation frameworks.","score":1},{"text":"The department has utilised basic forms or templates (such as annual appraisal sheets) towards performance evaluation, however it lacks standardisation, objectivity or alignment with organisational goals.","score":2},{"text":"The department has leveraged standardised frameworks (such as goal-setting, feedback forms) to ensure consistent and fair performance evaluations.","score":3},{"text":"The department has formalised comprehensive performance evaluation frameworks that integrate goal-setting, feedback mechanisms, and development planning.","score":4},{"text":"The department has embedded performance evaluation frameworks and dynamically aligned with strategic objectives with focus on data-driven improvement.","score":5}]},{"id":65,"pm_function":"Performance Management","focus_area":"Resources, Roles and Capacity","question":"To what extent does the department providing dedicated physical and digital spaces that support performance management activities?","responses":[{"text":"The department does not provide any dedicated physical or digital infrastructure for performance management.","score":1},{"text":"The department has shared or makeshift spaces and basic digital infrastructure (e.g., laptops or projectors) on an ad-hoc basis for performance management activities.","score":2},{"text":"The department has established dedicated physical spaces and basic digital infrastructure (e.g., projectors, internet access) to support structured performance management activities.","score":3},{"text":"The department has formalised well-equipped physical and digital environments that support structured performance management activities.","score":4},{"text":"The department has embedded advanced physical and digital learning spaces (including smart classrooms and immersive virtual platforms) to support continuous, flexible, and strategic performance management objectives.","score":5}]},{"id":66,"pm_function":"Performance Management","focus_area":"Partnerships and Values","question":"To what extent does the department integrate its culture and values into its performance management?","responses":[{"text":"The department does not align its performance management processes with its organisational values.","score":1},{"text":"The department has incorporated key values like accountability, transparency into performance evaluations, however the practices are varied and inconsistent.","score":2},{"text":"The department has adopted standardised frameworks that systematically integrates values into performance criteria through standardised evaluation frameworks.","score":3},{"text":"The department has formalised and integrated organisational values to drive all aspects of performance management (such as goal-setting, feedback, evaluation) with clear expectations and accountability mechanisms.","score":4},{"text":"The department has embedded and explicitly linked its organisational values into its performance management system and using these values to guide decision making across all stages of performance cycle.","score":5}]},{"id":67,"pm_function":"Performance Management","focus_area":"Partnerships and Values","question":"How does the department ensure that feedback is timely, constructive, and aligned with its cultural and performance expectations?","responses":[{"text":"The department does not align performance feedback conversations with its culture and values.","score":1},{"text":"The department has introduced ad-hoc feedback on organisational values, however it lacks cultural integration and value-based expectations are inadequately referenced.","score":2},{"text":"The department has regularly incorporated culture and values with feedback in structured conversations.","score":3},{"text":"The department has formalised feedback systems that explicitly measure and reinforce organisational values and cultural expectations.","score":4},{"text":"The department has embedded feedback as a continuous cultural practice in alignment with performance expectations from its staff.","score":5}]},{"id":68,"pm_function":"Performance Management","focus_area":"Partnerships and Values","question":"How well does the department use performance management to support continuous learning and employee development?","responses":[{"text":"The department does not have any structured link between performance management and learning and development.","score":1},{"text":"The department has conducted basic learning and development sessions during annual reviews, but these are not systematically linked to performance insights.","score":2},{"text":"The department has utilised performance data to inform learning and development recommendations and targeted learning interventions.","score":3},{"text":"The department has formalised performance evaluations to shape personalised development plans.","score":4},{"text":"The department has embedded performance evaluations to prescribe/develop dynamic learning pathways.","score":5}]},{"id":69,"pm_function":"Performance Management","focus_area":"Partnerships and Values","question":"How well does the department recognise and reward value-driven behaviors among its employees?","responses":[{"text":"The department does not implement any formal recognition or reward mechanisms for its staff.","score":1},{"text":"The department has occasionally acknowledged values-driven behaviors that reflect organisational values, however the practices are varied and inconsistent.","score":2},{"text":"The department has constituted a recognition and reward systems that is linked with culture and values.","score":3},{"text":"The department has formalised recognition of values-driven behaviors across all levels through several interventions such as bonuses, promotions, public recognition of exemplar behavior, etc.","score":4},{"text":"The department has embedded values-driven behaviors as intrinsic link to its organisational culture.","score":5}]},{"id":70,"pm_function":"Performance Management","focus_area":"Partnerships and Values","question":"How does the department ensure strategic alignment with external partners to achieve its performance management objectives?","responses":[{"text":"The department does not engage with external stakeholders for performance management efforts.","score":1},{"text":"The department has occasional engagements with external stakeholders for performance management efforts, however these efforts are informal and inconsistent.","score":2},{"text":"The department has explored avenues such as workshops, best practices to engage with external stakeholders.","score":3},{"text":"The department has formalised engagements with external partners to create tailored programs focused on leadership development, employee engagement, and performance.","score":4},{"text":"The department has embedded engagements with external stakeholders (such as developing AI-driven performance analytics and immersive feedback training programs.) in a collaborative, strategic manner.","score":5}]},{"id":71,"pm_function":"Performance Management","focus_area":"Partnerships and Values","question":"To what extent does the department collaborate with external partners to design and deliver performance management activities?","responses":[{"text":"The department does not have any formalised partnerships with external stakeholders for performance management efforts.","score":1},{"text":"The department has informal or ad-hoc external partnerships for performance management, with no formal agreements or structured processes in place.","score":2},{"text":"The department has established external partnerships for performance management, with basic agreements and some structured processes for collaboration.","score":3},{"text":"The department has formalised external partnerships for performance management, with formal agreements and clear objectives.","score":4},{"text":"The department has embedded external partnerships for performance management into its strategy, with continuous, well-governed collaborations and measurable outcomes.","score":5}]}];
 
@@ -478,25 +426,32 @@ let currentUser = null;
 let currentInstanceId = null, currentInstanceName = null;
 
 // INIT
-// On page load, check if there is already a session.
-// If so, run the MFA check rather than going straight to the app.
+// On page load: if the admin is already signed in, go straight in.
+// (2FA has been removed, so there is no extra code step any more.)
 window.addEventListener('load', async () => {
+  // Hide the Create Account tab if self sign-up is turned off
+  if (!ALLOW_SELF_SIGNUP) {
+    document.getElementById('signup-tab-btn').style.display = 'none';
+    document.getElementById('no-signup-note').style.display = 'block';
+  }
+
   const { data: { session } } = await db.auth.getSession();
   if (session) {
-    await checkMfa();
+    onLogin(session.user);
   } else {
     showScreen('auth');
   }
 
-  // Listen for auth state changes (sign in, sign out, token refresh)
-  db.auth.onAuthStateChange(async (_event, session) => {
-    if (_event === 'SIGNED_IN') {
-      // Password sign-in succeeded. Run MFA check before showing app.
-      await checkMfa();
+  // Listen for auth changes (sign in / sign out)
+  db.auth.onAuthStateChange((_event, session) => {
+    if (_event === 'SIGNED_IN' && session) {
+      // Supabase can fire SIGNED_IN again (e.g. when the tab regains focus).
+      // Skip it if this user is already loaded, so the page doesn't reload itself.
+      if (currentUser && currentUser.id === session.user.id) return;
+      onLogin(session.user);
     } else if (_event === 'SIGNED_OUT') {
       onLogout();
     }
-    // TOTP_CHALLENGE_VERIFIED is handled inside doVerifyTotp/doEnrolTotp directly
   });
 });
 
@@ -510,8 +465,8 @@ function switchTab(tab) {
 }
 
 // SIGN IN
-// Step 1 of login: email + password only.
-// After success, checkMfa() handles the MFA step before showing the app.
+// Email + password only. On success Supabase fires SIGNED_IN,
+// and the listener above calls onLogin().
 async function doLogin() {
   var email = document.getElementById('login-email').value.trim();
   var pass  = document.getElementById('login-pass').value;
@@ -519,12 +474,12 @@ async function doLogin() {
   showAlert('login-err','');
   var { error } = await db.auth.signInWithPassword({ email, password: pass });
   if (error) { showAlert('login-err', error.message); return; }
-  // signInWithPassword triggers onAuthStateChange which calls checkMfa()
-  // so we do not call onLogin() here directly
+  // signInWithPassword triggers onAuthStateChange, which calls onLogin()
 }
 
 // SIGN UP
 async function doSignup() {
+  if (!ALLOW_SELF_SIGNUP) return;   // safety: sign-up is disabled in this deployment
   var name  = document.getElementById('signup-name').value.trim();
   var email = document.getElementById('signup-email').value.trim();
   var pass  = document.getElementById('signup-pass').value;
@@ -554,181 +509,20 @@ async function doSignout() {
   await db.auth.signOut();
 }
 
-// CHECK MFA
-// Called after every successful password sign-in.
-// Checks the current Authenticator Assurance Level (AAL):
-//   aal1 = password only (MFA not yet verified)
-//   aal2 = password + TOTP verified
-// Also checks whether the user has a TOTP factor enrolled yet.
-async function checkMfa() {
-  try {
-    // Get the current assurance level of the session
-    var { data: aalData } = await db.auth.mfa.getAuthenticatorAssuranceLevel();
-    var currentLevel = aalData.currentLevel;   // what they have proven so far
-    var nextLevel    = aalData.nextLevel;       // what is required to access the app
-
-    // If the session is already at aal2, MFA is fully verified - show the app
-    if (currentLevel === 'aal2') {
-      var { data: { user } } = await db.auth.getUser();
-      onLogin(user);
-      return;
-    }
-
-    // Session is at aal1 (password only). Check what factors the user has enrolled.
-    var { data: factorsData } = await db.auth.mfa.listFactors();
-    var totpFactors = factorsData.totp || [];
-    var verifiedFactors = totpFactors.filter(f => f.status === 'verified');
-
-    if (verifiedFactors.length > 0) {
-      // User has a verified TOTP factor but has not entered the code yet.
-      // Show the verify screen so they can enter their 6-digit code.
-      window._mfaFactorId = verifiedFactors[0].id;
-      showScreen('mfa-verify');
-    } else {
-      // User has no TOTP factor yet (first login after MFA was enabled).
-      // Show the enrolment screen so they can scan the QR code.
-      await startEnrolment();
-      showScreen('mfa-enrol');
-    }
-  } catch(e) {
-    // If MFA check fails for any reason, sign out for safety
-    await db.auth.signOut();
-    showAlert('login-err', 'MFA check failed. Please try signing in again.');
-  }
-}
-
 // SHOW SCREEN
 // Hides all auth-related screens and shows only the requested one.
 function showScreen(name) {
   document.getElementById('auth-screen').style.display          = 'none';
-  document.getElementById('mfa-verify-screen').style.display    = 'none';
-  document.getElementById('mfa-enrol-screen').style.display     = 'none';
   document.getElementById('profile-setup-screen').style.display = 'none';
   document.getElementById('app').style.display                  = 'none';
 
   if (name === 'auth')           document.getElementById('auth-screen').style.display          = 'flex';
-  if (name === 'mfa-verify')     document.getElementById('mfa-verify-screen').style.display    = 'flex';
-  if (name === 'mfa-enrol')      document.getElementById('mfa-enrol-screen').style.display     = 'flex';
   if (name === 'profile-setup')  document.getElementById('profile-setup-screen').style.display = 'flex';
   if (name === 'app')            document.getElementById('app').style.display                  = 'flex';
 }
 
-// VERIFY TOTP
-// Called when the user submits their 6-digit code on the verify screen.
-async function doVerifyTotp() {
-  var code = document.getElementById('mfa-code-input').value.trim();
-  if (code.length !== 6) { showAlert('mfa-verify-err','Please enter the 6-digit code.'); return; }
-  showAlert('mfa-verify-err','');
-  try {
-    // Create a challenge for this factor, then verify the code against it
-    var { data: challenge, error: challengeErr } = await db.auth.mfa.challenge({
-      factorId: window._mfaFactorId
-    });
-    if (challengeErr) { showAlert('mfa-verify-err', challengeErr.message); return; }
-
-    var { error: verifyErr } = await db.auth.mfa.verify({
-      factorId:    window._mfaFactorId,
-      challengeId: challenge.id,
-      code:        code
-    });
-    if (verifyErr) { showAlert('mfa-verify-err', 'Incorrect code. Please try again.'); return; }
-
-    // Code is correct. Session is now at aal2. Show the app.
-    var { data: { user } } = await db.auth.getUser();
-    onLogin(user);
-  } catch(e) {
-    showAlert('mfa-verify-err', 'Verification failed. Please try again.');
-  }
-}
-
-// START ENROLMENT
-// Calls the Supabase MFA enrol API and renders the QR code on screen.
-async function startEnrolment() {
-  try {
-    // STEP 1: Try to delete ALL existing TOTP factors (verified or not).
-    // We use listFactors() but also try a direct unenroll on any factor
-    // we find. Unverified "ghost" factors (with empty friendly name) are
-    // invisible to listFactors() in some Supabase versions, so we also
-    // handle the case where enroll() returns a conflict error by unenrolling
-    // using the factor ID returned in the error response.
-    var { data: existingFactors } = await db.auth.mfa.listFactors();
-    var allTotp = (existingFactors && existingFactors.totp) ? existingFactors.totp : [];
-    for (var f of allTotp) {
-      // Delete every factor — verified or not — so we start completely fresh
-      await db.auth.mfa.unenroll({ factorId: f.id });
-    }
-
-    // STEP 2: Enrol a fresh TOTP factor.
-    // We give it a friendlyName with a timestamp so it is always unique.
-    // This prevents the "friendly name already exists" error even if a
-    // ghost factor is still lurking that listFactors() couldn't see.
-    var friendlyName = 'PMDT-' + Date.now();
-    var { data, error } = await db.auth.mfa.enroll({
-      factorType:   'totp',
-      friendlyName: friendlyName   // unique name = no name conflict
-    });
-
-    // STEP 3: If there's STILL a conflict, the ghost factor is completely
-    // hidden from the client. Show a clear message telling the user what to do.
-    if (error) {
-      showAlert('mfa-enrol-err',
-        error.message +
-        ' — Please go to your Supabase dashboard → Authentication → Users' +
-        ' → find this user → delete the MFA factor listed there, then try again.'
-      );
-      return;
-    }
-
-    // Store the factor ID so we can verify against it after the user scans
-    window._mfaEnrolFactorId = data.id;
-
-    // Render the QR code image (Supabase returns it as a data URI)
-    const qr = await QRCode.toDataURL(data.totp.uri);
-    document.getElementById('mfa-qr-wrap').innerHTML =
-      '<img src="' + qr + '" alt="QR Code" ' +
-      'style="width:180px;height:180px;border:4px solid #eee;border-radius:8px;">';
-
-    // Also store the secret for manual entry fallback
-    document.getElementById('mfa-secret-text').textContent = data.totp.secret;
-  } catch(e) {
-    // Show the actual error message so it's easier to diagnose problems
-    showAlert('mfa-enrol-err', 'Could not generate QR code: ' + (e.message || 'Unknown error') + '. Please refresh and try again.');
-  }
-}
-
-// CONFIRM ENROLMENT
-// Called when the user enters the 6-digit code after scanning the QR code.
-async function doEnrolTotp() {
-  var code = document.getElementById('mfa-enrol-code').value.trim();
-  if (code.length !== 6) { showAlert('mfa-enrol-err','Please enter the 6-digit code from your app.'); return; }
-  showAlert('mfa-enrol-err','');
-  try {
-    // Challenge and verify in one step to confirm the factor is working
-    var { data: challenge, error: challengeErr } = await db.auth.mfa.challenge({
-      factorId: window._mfaEnrolFactorId
-    });
-    if (challengeErr) { showAlert('mfa-enrol-err', challengeErr.message); return; }
-
-    var { error: verifyErr } = await db.auth.mfa.verify({
-      factorId:    window._mfaEnrolFactorId,
-      challengeId: challenge.id,
-      code:        code
-    });
-    if (verifyErr) {
-      showAlert('mfa-enrol-err', 'Incorrect code. Make sure your app is showing the right account and try again.');
-      return;
-    }
-
-    // Enrolment confirmed. Session is now at aal2. Show the app.
-    var { data: { user } } = await db.auth.getUser();
-    onLogin(user);
-  } catch(e) {
-    showAlert('mfa-enrol-err', 'Enrolment failed. Please refresh and try again.');
-  }
-}
-
 // ON LOGIN
-// Called once MFA is fully verified (aal2).
+// Called after a successful password sign-in (or an existing session on page load).
 // Checks whether the user has saved their creator profile yet.
 // If not, shows the one-time profile setup screen first.
 async function onLogin(user) {
@@ -824,10 +618,6 @@ function loadCreatorProfile() {
 // ON LOGOUT
 function onLogout() {
   currentUser = null;
-  window._mfaFactorId      = null;
-  window._mfaEnrolFactorId = null;
-  document.getElementById('mfa-code-input')  && (document.getElementById('mfa-code-input').value  = '');
-  document.getElementById('mfa-enrol-code')  && (document.getElementById('mfa-enrol-code').value  = '');
   showScreen('auth');
 }
 
@@ -880,6 +670,12 @@ async function loadInstances() {
     var surveyUrl = basePath + 'survey.html?instance=' + inst.id;
       var fns = inst.functions ? inst.functions.join(', ') : 'All';
       var safeUrl = escHtml(surveyUrl), safeName = escHtml(inst.name);
+      // How many questions in this instance have context attached
+      var ctxCount = inst.question_context ? Object.keys(inst.question_context).length : 0;
+      // "Download Data" is only offered once the survey is closed (status = stopped)
+      var downloadBtn = inst.status !== 'active'
+        ? '<button class="btn btn-sm btn-success" data-action="download" data-id="' + inst.id + '" data-name="' + safeName + '">⬇ Download Data</button>'
+        : '';
       var stopBtn = inst.status === 'active'
         ? '<button class="btn btn-sm btn-danger" data-action="toggle" data-id="' + inst.id + '" data-status="stopped">Stop</button>'
         : '<button class="btn btn-sm btn-success" data-action="toggle" data-id="' + inst.id + '" data-status="active">Restart</button>';
@@ -890,6 +686,7 @@ async function loadInstances() {
             '<div class="instance-meta">' +
               new Date(inst.created_at).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) +
               ' &middot; ' + escHtml(fns) +
+              ' &middot; Context: ' + ctxCount + ' question(s)' +
             '</div>' +
           '</div>' +
           '<span class="badge badge-' + inst.status + '">' + inst.status + '</span>' +
@@ -899,6 +696,7 @@ async function loadInstances() {
           '<button class="btn btn-sm btn-primary" data-action="copy" data-url="' + safeUrl + '">Copy Link</button>' +
           '<button class="btn btn-sm" style="background:var(--bg);border:1px solid #ccc" data-action="view" data-id="' + inst.id + '" data-name="' + safeName + '">Responses</button>' +
           stopBtn +
+          downloadBtn +
           '<button class="btn btn-sm" style="background:#fff0f0;color:#9e2f17;border:1px solid #f5c6c6" data-action="del-responses" data-id="' + inst.id + '" data-name="' + safeName + '">Clear Responses</button>' +
           '<button class="btn btn-sm" style="background:#fff0f0;color:#9e2f17;border:1px solid #f5c6c6" data-action="del-instance" data-id="' + inst.id + '" data-name="' + safeName + '">Delete</button>' +
         '</div>' +
@@ -914,6 +712,7 @@ async function loadInstances() {
       if (a === 'toggle')        toggleStatus(btn.dataset.id, btn.dataset.status);
       if (a === 'del-responses') deleteResponses(btn.dataset.id, btn.dataset.name);
       if (a === 'del-instance')  deleteInstance(btn.dataset.id, btn.dataset.name);
+      if (a === 'download')      downloadRespondentData(btn.dataset.id, btn.dataset.name);
     };
   } catch(e) {
     container.innerHTML = '<p style="color:var(--red);">Error: ' + e.message + '</p>';
@@ -939,6 +738,15 @@ async function createInstance() {
     return;
   }
 
+  // Keep only context for questions in the PM functions ticked above.
+  // (If the admin uploaded context for all 71 but ticked only 2 functions,
+  //  the extra rows are simply dropped.)
+  var context = {};
+  Object.keys(window._uploadedContext || {}).forEach(function(qid) {
+    var q = QUESTIONS.find(function(x) { return String(x.id) === String(qid); });
+    if (q && fns.indexOf(q.pm_function) !== -1) context[qid] = window._uploadedContext[qid];
+  });
+
   showAlert('create-err',''); showAlert('create-ok','');
   document.getElementById('new-link-box').style.display = 'none';
 
@@ -956,17 +764,189 @@ async function createInstance() {
       creator_email:    creator.email,
       creator_ministry: creator.ministry,
       creator_dept:     creator.dept,
-      creator_org:      creator.org
+      creator_org:      creator.org,
+      // NEW: { "1": "context text", "13": "..." }  (stored in a jsonb column)
+      question_context: context
     });
     var inst = Array.isArray(result) ? result[0] : result;
+    // If Supabase rejected the insert it returns an error object (no id).
+    // Most common cause: the SQL migration (question_context column) hasn't been run yet.
+    if (!inst || !inst.id) throw new Error((inst && inst.message) || 'Instance could not be saved.');
     // Build the survey URL the same robust way as in loadInstances()
     var basePath = location.href.substring(0, location.href.lastIndexOf('/') + 1);
     var url  = basePath + 'survey.html?instance=' + inst.id;
     document.getElementById('new-link-text').textContent = url;
     document.getElementById('new-link-box').style.display = 'block';
-    showAlert('create-ok','Instance created!', 'success');
+    showAlert('create-ok','Instance created! Context added for ' + Object.keys(context).length + ' question(s).', 'success');
+    // Reset the upload box so the next instance starts clean
+    window._uploadedContext = {};
+    document.getElementById('context-file').value = '';
+    document.getElementById('context-status').textContent = '';
     loadInstances();
   } catch(e) { showAlert('create-err','Error: ' + e.message); }
+}
+
+// ================================================================
+// QUESTION CONTEXT: READ THE UPLOADED EXCEL FILE
+// Expects a sheet with (at least) a "Question ID" column and a
+// "Context" column. Result is stored in window._uploadedContext as
+// { "1": "context for Q1", "5": "context for Q5", ... }
+// ================================================================
+window._uploadedContext = {};
+
+function readContextFile(file) {
+  var statusEl = document.getElementById('context-status');
+  window._uploadedContext = {};
+  if (!file) { statusEl.textContent = ''; return; }
+
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      // 1. Open the workbook from the file's raw bytes
+      var wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+
+      // 2. Use the "Question Context" sheet if it exists, otherwise the first sheet
+      var sheetName = wb.SheetNames.indexOf('Question Context') !== -1 ? 'Question Context' : wb.SheetNames[0];
+
+      // 3. Turn the sheet into a list of rows: [{ "Question ID": 1, "Context": "..." }, ...]
+      //    defval:'' means empty cells come back as '' instead of being skipped
+      var rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' });
+      if (!rows.length) throw new Error('The sheet is empty.');
+
+      // 4. Find the column names, ignoring upper/lower case and extra spaces
+      var headers = Object.keys(rows[0]);
+      var find = function(word) {
+        return headers.find(function(h) { return h.toLowerCase().trim().indexOf(word) !== -1; });
+      };
+      var idCol  = find('question id');
+      var ctxCol = find('context');
+      if (!idCol || !ctxCol) throw new Error('Could not find the "Question ID" and "Context" columns. Please use the template.');
+
+      // 5. Collect the non-empty contexts
+      var tooLong = [], unknown = [];
+      rows.forEach(function(row) {
+        var qid  = String(row[idCol]).trim();
+        // Strip < and > so no HTML can be stored (same rule as the rest of the app)
+        var text = String(row[ctxCol]).replace(/[<>]/g, '').trim();
+        if (!qid || !text) return;                                  // blank row or no context
+        if (!QUESTIONS.some(function(q) { return String(q.id) === qid; })) { unknown.push(qid); return; }
+        if (text.length > MAX_CONTEXT_CHARS) { tooLong.push(qid); text = text.substring(0, MAX_CONTEXT_CHARS); }
+        window._uploadedContext[qid] = text;
+      });
+
+      // 6. Tell the admin what was found
+      var n = Object.keys(window._uploadedContext).length;
+      var msg = '✓ Context found for ' + n + ' question(s).';
+      if (tooLong.length) msg += ' Trimmed to ' + MAX_CONTEXT_CHARS + ' characters: Q' + tooLong.join(', Q') + '.';
+      if (unknown.length) msg += ' Ignored unknown Question IDs: ' + unknown.join(', ') + '.';
+      statusEl.style.color = n ? 'var(--green)' : 'var(--red)';
+      statusEl.textContent = n ? msg : 'No context text found in the file. Fill the "Context" column and try again.';
+    } catch (err) {
+      window._uploadedContext = {};
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = 'Could not read file: ' + err.message;
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// DOWNLOAD BLANK TEMPLATE
+// Builds the same columns as PMDT_Question_Context_Template.xlsx straight
+// from the QUESTIONS list, so it always matches the current question set.
+function downloadContextTemplate() {
+  var rows = QUESTIONS.map(function(q) {
+    return {
+      'Question ID':            q.id,
+      'Vertical (PM Function)': q.pm_function,
+      'Focus Area':             q.focus_area,
+      'Question':               q.question,
+      'Context':                ''
+    };
+  });
+  var ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [{ wch: 11 }, { wch: 24 }, { wch: 26 }, { wch: 70 }, { wch: 70 }]; // column widths
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Question Context');
+  XLSX.writeFile(wb, 'PMDT_Question_Context_Template.xlsx');
+}
+
+// ================================================================
+// DOWNLOAD RESPONDENT DATA (only offered for closed instances)
+// Creates an Excel file with 3 sheets:
+//   Responses  - one row per respondent: details, consent record, scores
+//   Questions  - question list for this instance, with the context shown
+//   Instance   - who created the instance and when
+// ================================================================
+async function downloadRespondentData(instanceId, instanceName) {
+  try {
+    var inst = window._instances[instanceId];
+    var rows = await apiCall('responses?instance_id=eq.' + instanceId + '&order=submitted_at.asc&select=*');
+    if (!Array.isArray(rows)) throw new Error(rows.message || 'Could not load responses.');
+    if (!rows.length) { alert('No responses to download for this instance.'); return; }
+
+    var fnCols = inst && inst.functions ? inst.functions : SECTIONS.map(s => s.fn);
+    var qCols  = QUESTIONS.filter(q => fnCols.indexOf(q.pm_function) !== -1);
+    var ctx    = (inst && inst.question_context) || {};
+
+    // Average of answered questions only (0 = skipped is left out, same as the CSV)
+    function avg(answers, qs) {
+      var a = qs.filter(q => answers[q.id] !== undefined && answers[q.id] > 0);
+      return a.length ? Number((a.reduce((s, q) => s + answers[q.id], 0) / a.length).toFixed(2)) : '';
+    }
+
+    // --- Sheet 1: Responses ---
+    var responseRows = rows.map(function(row, i) {
+      var answers = row.answers || {};
+      var out = {
+        '#':                    i + 1,
+        'Name':                 row.resp_name || '',
+        'Position':             row.resp_position || '',
+        'Phone':                row.resp_phone || '',
+        'Email':                row.resp_email || '',
+        'Yrs in Position':      row.resp_yrs_pos || '',
+        'Yrs in Service':       row.resp_yrs_svc || '',
+        'Submitted':            row.submitted_at ? new Date(row.submitted_at).toLocaleString('en-GB') : '',
+        'Consent Given':        row.consent_given ? 'Yes' : '',
+        'Consent Recorded At':  row.consent_at ? new Date(row.consent_at).toLocaleString('en-GB') : '',
+        'Notice Version':       row.consent_version || ''
+      };
+      fnCols.forEach(function(fn) { out[fn + ' avg'] = avg(answers, QUESTIONS.filter(q => q.pm_function === fn)); });
+      out['Overall avg'] = avg(answers, qCols);
+      // One column per question. Blank = not answered, 0 = skipped
+      qCols.forEach(function(q) { out['Q' + q.id] = answers[q.id] === undefined ? '' : answers[q.id]; });
+      return out;
+    });
+
+    // --- Sheet 2: Questions (so the Q-numbers in sheet 1 can be looked up) ---
+    var questionRows = qCols.map(function(q) {
+      return { 'Question ID': q.id, 'Vertical (PM Function)': q.pm_function,
+               'Focus Area': q.focus_area, 'Question': q.question, 'Context': ctx[q.id] || '' };
+    });
+
+    // --- Sheet 3: Instance details ---
+    var instRows = [
+      { Field: 'Instance',     Value: inst ? inst.name : instanceName },
+      { Field: 'Status',       Value: inst ? inst.status : '' },
+      { Field: 'Created',      Value: inst ? new Date(inst.created_at).toLocaleString('en-GB') : '' },
+      { Field: 'Creator',      Value: inst ? (inst.creator_name || '') + ', ' + (inst.creator_position || '') : '' },
+      { Field: 'Ministry',     Value: inst ? inst.creator_ministry || '' : '' },
+      { Field: 'Department',   Value: inst ? inst.creator_dept || '' : '' },
+      { Field: 'Organisation', Value: inst ? inst.creator_org || '' : '' },
+      { Field: 'Downloaded',   Value: new Date().toLocaleString('en-GB') },
+      { Field: 'Note',         Value: 'Contains personal data collected under the DPDP Act, 2023. Use only for the purpose stated to respondents and store securely.' }
+    ];
+
+    var wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(responseRows), 'Responses');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(questionRows), 'Questions');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(instRows),     'Instance');
+
+    // File name: instance name with only safe characters + today's date
+    var safe = (inst ? inst.name : instanceName).replace(/[^a-zA-Z0-9]+/g, '_').substring(0, 40);
+    XLSX.writeFile(wb, 'PMDT_' + safe + '_' + new Date().toISOString().split('T')[0] + '.xlsx');
+  } catch (e) {
+    alert('Download failed: ' + e.message);
+  }
 }
 
 function copyNewLink() { copyText(document.getElementById('new-link-text').textContent); }

@@ -726,6 +726,37 @@
   }
 
 
+  /* QUESTION CONTEXT BOX: sits between the question and the options */
+  .q-context-box {
+    background: #eef6fa;                      /* very light CEGIS blue */
+    border-left: 4px solid var(--cegis-blue);
+    padding: 12px 16px;
+    margin: 0 0 18px;
+    font-size: 0.88rem;
+    line-height: 1.6;
+    color: var(--text-dark);
+    white-space: pre-line;                    /* keeps line breaks typed in Excel (Alt+Enter) */
+    max-height: 220px;                        /* very long context scrolls inside the box */
+    overflow-y: auto;
+  }
+  .q-context-label {
+    display: block;
+    font-size: 0.68rem; font-weight: 800; letter-spacing: 0.07em;
+    text-transform: uppercase; color: var(--cegis-blue);
+    margin-bottom: 4px; white-space: normal;
+  }
+
+  /* DPDP PRIVACY NOTICE (welcome screen + report) */
+  .privacy-notice {
+    font-size: 0.82rem; color: var(--text-mid); line-height: 1.65;
+    border: 1px solid #dfe3e6; padding: 12px 16px; margin: 10px 0 14px;
+    background: #fafbfc;
+  }
+  .privacy-notice summary { cursor: pointer; font-weight: 700; color: var(--cegis-blue); }
+  .privacy-notice h4 { font-size: 0.8rem; color: var(--text-dark); margin: 12px 0 4px; }
+  .privacy-notice ul { padding-left: 18px; margin: 4px 0; }
+  .consent-check-label + .consent-check-label { margin-top: 10px; }
+
   /* CAROUSEL DOTS */
   .carousel-dots {
     display: flex; flex-wrap: wrap; gap: 5px;
@@ -893,22 +924,30 @@ Please go through the <a href="https://docs.google.com/document/d/1GwaL7zuG2jss2
           <span class="fn-pill pill-pm">Performance Management · 21 Qs</span>
         </div>
 
-        <!-- Consent section -->
+        <!-- Consent section (DPDP Act, 2023) -->
         <div class="consent-box">
-          <p class="consent-title">Consent statement</p>
-          <p class="consent-body">By proceeding with the assessment or selecting the consent option, you confirm that:</p>
-          <ul class="consent-list">
-            <li>You have read and understood the information provided above.</li>
-            <li>Your participation is voluntary.</li>
-            <li>You understand how your data will be used, stored, and protected.</li>
-          </ul>
+          <p class="consent-title">Privacy notice and consent</p>
+          <p class="consent-body">
+            Before you begin, please read how your personal data will be used. Participation is voluntary.
+            Nothing is saved until you reach the end of the survey, so you can stop at any time before then.
+          </p>
+          <!-- Collapsible full notice; filled in by buildPrivacyNotice() -->
+          <details class="privacy-notice" open>
+            <summary>Read the full privacy notice</summary>
+            <div id="privacy-notice-welcome"></div>
+          </details>
+          <!-- Two separate consents: DPDP consent must be specific to each purpose -->
           <label class="consent-check-label">
-            <input type="checkbox" id="consent-checkbox" onchange="toggleBeginBtn()">
-            <span>I have read and understood the above information and voluntarily consent to participate in the PMDT self-assessment.</span>
+            <input type="checkbox" id="consent-processing" onchange="toggleBeginBtn()">
+            <span>I consent to my personal data (name, designation, official phone and email, years of service) and my responses being processed to generate my individual self-assessment report.</span>
+          </label>
+          <label class="consent-check-label">
+            <input type="checkbox" id="consent-sharing" onchange="toggleBeginBtn()">
+            <span>I consent to my details and responses being shared with the administrator of this survey for the department-level personnel management diagnostic.</span>
           </label>
         </div>
 
-        <button class="btn btn-primary btn-lg" id="btn-begin" onclick="showScreen('screen-profile')" disabled
+        <button class="btn btn-primary btn-lg" id="btn-begin" onclick="recordConsent(); showScreen('screen-profile')" disabled
           style="opacity:0.45; cursor:not-allowed;">Begin Survey &rarr;</button>
       </div>
     </div>
@@ -1119,6 +1158,16 @@ Please go through the <a href="https://docs.google.com/document/d/1GwaL7zuG2jss2
         </table>
       </div>
 
+      <!-- DPDP notice in the report: so the respondent keeps a copy of
+           what they agreed to, together with when they agreed -->
+      <div class="chart-container" style="page-break-inside: avoid;">
+        <h3>Data Protection Notice</h3>
+        <div class="privacy-notice" style="background:#fff;">
+          <div id="privacy-notice-report"></div>
+          <p id="consent-record" style="margin-top:12px; font-weight:600; color:var(--text-dark);"></p>
+        </div>
+      </div>
+
       <div class="no-pdf" style="display:flex; justify-content:center; gap:12px; margin-top:10px; flex-wrap:wrap;">
         <button class="btn btn-primary" onclick="downloadPDF()" id="btn-pdf">⬇ Download PDF</button>
       </div>
@@ -1134,6 +1183,19 @@ Please go through the <a href="https://docs.google.com/document/d/1GwaL7zuG2jss2
 ================================================================ */
 const SUPABASE_URL = 'https://vcziwbqqzunbdaxtgxyj.supabase.co';   // e.g. https://xxxx.supabase.co
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZjeml3YnFxenVuYmRheHRneHlqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1Nzc3MDIsImV4cCI6MjA5MTE1MzcwMn0.rH0E3oKFv1C5q5IVejp9Uany1ojfRjzdSwJdQ3S4miY'; // public anon key (not service key)
+
+/* ================================================================
+   PRIVACY NOTICE SETTINGS (DPDP Act, 2023): EDIT BEFORE GOING LIVE
+   These values are shown to respondents and printed in their report.
+   Get them confirmed by whoever handles legal/compliance at CEGIS.
+================================================================ */
+const PRIVACY = {
+  noticeVersion:  'v1.0 (October 2026)',     // change this whenever the notice text changes
+  fiduciary:      'CEGIS Foundation',        // organisation responsible for the data (Data Fiduciary)
+  contactEmail:   'REPLACE-ME@cegis.org',    // grievance / privacy contact; MUST be a real, monitored inbox
+  retention:      '12 months from the date the survey is closed', // how long responses are kept
+  storageNote:    'Data is stored with our cloud database provider (Supabase), encrypted in transit and at rest. It may be processed on servers outside India where permitted under Section 16 of the Act.'
+};
 
 /* INSTANCE STATE */
 var instanceId   = null;
@@ -1169,6 +1231,8 @@ async function loadInstance() {
     }
     /* Filter SECTIONS list to active only */
     window._activeSECTIONS = SECTIONS.filter(s => window._activeFunctions.indexOf(s.fn) !== -1);
+    /* Fill the privacy notice now that we know which organisation is running this survey */
+    document.getElementById('privacy-notice-welcome').innerHTML = buildPrivacyNotice();
     /* Show welcome screen */
     showScreen('screen-welcome');
   } catch(e) {
@@ -1186,10 +1250,14 @@ async function submitToSupabase() {
     resp_email:    profile.email    || '',
     resp_yrs_pos:  profile.yrsPos   || '',
     resp_yrs_svc:  profile.yrsSvc   || '',
-    answers: answers   /* { "1": 3, "2": 5, ... } */
+    answers: answers,  /* { "1": 3, "2": 5, ... } */
+    /* Consent record (DPDP): what was agreed to, and when */
+    consent_given:   consentRecord.given,
+    consent_at:      consentRecord.at,
+    consent_version: PRIVACY.noticeVersion
   };
   try {
-    await fetch(SUPABASE_URL + '/rest/v1/responses', {
+    var r = await fetch(SUPABASE_URL + '/rest/v1/responses', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1199,6 +1267,9 @@ async function submitToSupabase() {
       },
       body: JSON.stringify(payload)
     });
+    /* fetch() only throws on network failure. A rejected row (e.g. a missing
+       column because the SQL migration wasn't run) comes back as r.ok = false. */
+    if (!r.ok) console.error('Supabase rejected the response:', r.status, await r.text());
   } catch(e) {
     console.warn('Supabase submit error:', e);
     /* Do not block the results page: store locally as fallback */
@@ -1214,12 +1285,73 @@ const QUESTIONS = [{"id":1,"pm_function":"Staffing","focus_area":"Resources, Rol
 
 
 /* CONSENT GATE */
+/* Filled in when the respondent clicks "Begin Survey" */
+var consentRecord = { given: false, at: null };
+
 function toggleBeginBtn() {
-  var checked = document.getElementById('consent-checkbox').checked;
+  /* Both consents are required to continue */
+  var checked = document.getElementById('consent-processing').checked &&
+                document.getElementById('consent-sharing').checked;
   var btn = document.getElementById('btn-begin');
   btn.disabled = !checked;
   btn.style.opacity = checked ? '1' : '0.45';
   btn.style.cursor  = checked ? 'pointer' : 'not-allowed';
+}
+
+/* RECORD CONSENT: called by the Begin button */
+function recordConsent() {
+  consentRecord.given = true;
+  consentRecord.at    = new Date().toISOString();   /* saved with the response */
+}
+
+/* ESCAPE HTML: turns < > & " into safe text before putting it on the page */
+function escHtml(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/* BUILD PRIVACY NOTICE
+   Returns the notice as HTML. Used on the welcome screen AND in the report,
+   so the respondent's PDF contains exactly what they agreed to.
+   Structure follows the DPDP Act, 2023: notice (s.5), consent and withdrawal (s.6),
+   retention and security (s.8), rights of the Data Principal (s.11-14). */
+function buildPrivacyNotice() {
+  /* Name the organisation that invited the respondent, if the instance has one */
+  var inviter = instanceData
+    ? (instanceData.creator_org || instanceData.creator_dept || instanceData.creator_ministry || '')
+    : '';
+  var runBy = inviter
+    ? 'This survey has been set up by <strong>' + escHtml(inviter) + '</strong> using the PMDT platform operated by ' + escHtml(PRIVACY.fiduciary) + '.'
+    : 'This survey is run on the PMDT platform operated by ' + escHtml(PRIVACY.fiduciary) + '.';
+
+  return '' +
+    '<p>' + runBy + ' This notice is issued under the Digital Personal Data Protection Act, 2023. ' +
+      escHtml(PRIVACY.fiduciary) + ' is the Data Fiduciary for the data collected here.</p>' +
+
+    '<h4>1. What we collect</h4>' +
+    '<ul><li>Your name, position/designation, official phone number and official email address.</li>' +
+    '<li>Years in current position and total years in service.</li>' +
+    '<li>Your answers to the self-assessment questions.</li></ul>' +
+
+    '<h4>2. Why we collect it</h4>' +
+    '<ul><li>To generate your individual self-assessment report.</li>' +
+    '<li>To share your details and responses with the administrator of this survey, for the department-level personnel management diagnostic.</li></ul>' +
+    '<p>Your data will not be used for any other purpose, sold, or shared with anyone else unless required by law.</p>' +
+
+    '<h4>3. How long we keep it and how it is protected</h4>' +
+    '<p>Your data is kept for ' + escHtml(PRIVACY.retention) + ', or until you withdraw consent, after which it is erased unless the law requires us to keep it. ' +
+      escHtml(PRIVACY.storageNote) + ' Access is limited to the survey administrator and authorised CEGIS staff. ' +
+      'If a personal data breach occurs, we will inform you and the Data Protection Board of India as required by law.</p>' +
+
+    '<h4>4. Your rights</h4>' +
+    '<ul><li><strong>Withdraw consent</strong> at any time, as easily as you gave it. Withdrawal does not affect processing already done before it.</li>' +
+    '<li><strong>Access</strong> a summary of your personal data and how it has been used.</li>' +
+    '<li><strong>Correct, complete, update or erase</strong> your personal data.</li>' +
+    '<li><strong>Nominate</strong> another person to exercise these rights in case of death or incapacity.</li>' +
+    '<li><strong>Grievance redressal:</strong> write to <strong>' + escHtml(PRIVACY.contactEmail) + '</strong>. ' +
+      'If you are not satisfied with our response, you may complain to the Data Protection Board of India.</li></ul>' +
+
+    '<p style="margin-top:8px;">To use any of these rights, email ' + escHtml(PRIVACY.contactEmail) +
+      ' with your name, the survey name and your request. Notice version: ' + escHtml(PRIVACY.noticeVersion) + '.</p>';
 }
 
 /* PROFILE DATA */
@@ -1466,6 +1598,18 @@ function renderCarouselQuestion(qs) {
   var html = '<div class="question-card-carousel" id="qcard-' + q.id + '">';
   html += '<div class="q-meta"><span class="q-counter">Question ' + (currentQ + 1) + ' of ' + total + '</span></div>';
   html += '<div class="q-text-fixed">' + q.question.trim() + '</div>';
+
+  /* CONTEXT BOX: only shown if the admin uploaded context for this question.
+     question_context looks like { "1": "text", "13": "text" } (keys are strings) */
+  var ctxMap  = (instanceData && instanceData.question_context) || {};
+  var ctxText = ctxMap[String(q.id)];
+  if (ctxText && String(ctxText).trim()) {
+    html += '<div class="q-context-box">' +
+              '<span class="q-context-label">Context</span>' +
+              escHtml(String(ctxText).trim()) +   /* escaped: admin text can never run as code */
+            '</div>';
+  }
+
   html += '<div class="response-options-fixed">';
 
   q.responses.forEach(function(r) {
@@ -1634,6 +1778,11 @@ function showResults() {
   showScreen('screen-results');
   submitToSupabase();
   populateRespondentCard();
+  /* Privacy notice + consent record in the report */
+  document.getElementById('privacy-notice-report').innerHTML = buildPrivacyNotice();
+  document.getElementById('consent-record').textContent = consentRecord.at
+    ? 'Consent given on ' + new Date(consentRecord.at).toLocaleString('en-GB') + ' (notice ' + PRIVACY.noticeVersion + ').'
+    : '';
   const { pm, fa, cross } = calcScores();
 
   /* Score cards: three tiers */
@@ -1749,6 +1898,10 @@ function restartSurvey() {
   Object.keys(answers).forEach(k => delete answers[k]);
   Object.keys(shuffled).forEach(k => delete shuffled[k]);
   Object.keys(profile).forEach(k => delete profile[k]);
+  consentRecord = { given: false, at: null };
+  document.getElementById('consent-processing').checked = false;
+  document.getElementById('consent-sharing').checked = false;
+  toggleBeginBtn();
   currentSection = 0;
   showScreen('screen-welcome');
 }
