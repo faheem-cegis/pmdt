@@ -736,8 +736,8 @@
     line-height: 1.6;
     color: var(--text-dark);
     white-space: pre-line;                    /* keeps line breaks typed in Excel (Alt+Enter) */
-    max-height: 220px;                        /* very long context scrolls inside the box */
-    overflow-y: auto;
+    /* No inner scrollbar: long context simply makes the question area taller,
+       and the question area (not the box) scrolls. One scroll area = less confusing. */
   }
   .q-context-label {
     display: block;
@@ -821,7 +821,10 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    height: 390px;      /* fixed: 6 options (5 + skip) */
+    /* min-height (not height): keeps the steady desktop look, but the box can
+       now GROW when option text wraps onto more lines (e.g. on phones).
+       A fixed height here was squashing the options so they overlapped. */
+    min-height: 390px;
     overflow: visible;
   }
 
@@ -831,8 +834,7 @@
     font-size: 0.96rem;
     padding: 12px 15px;
     line-height: 1.5;
-    flex: 1;             /* all 5 options share equal space */
-    min-height: 0;
+    flex: 1 0 auto;      /* share spare space equally, but never shrink smaller than the text */
     align-items: center;
   }
 
@@ -884,6 +886,48 @@
     font-size: 0.82rem !important;
   }
 
+
+  /* ================================================================
+     SURVEY SCREEN: ONLY THE QUESTION AREA SCROLLS
+     When the survey is open, JS adds the class "survey-mode" to <body>.
+     Then:
+       - the page is locked to the window height (no whole-page scroll),
+       - the header, left sidebar and Prev/Next buttons stay put,
+       - only #questions-container (question + context + options) scrolls.
+     Other screens (welcome, profile, results) are NOT affected.
+  ================================================================ */
+  body.survey-mode {
+    height: 100vh;      /* fallback for older browsers */
+    height: 100dvh;     /* "dynamic" height: correct on mobile when the address bar shows/hides */
+    overflow: hidden;   /* stop the whole page from scrolling */
+  }
+  body.survey-mode #screen-survey {
+    min-height: 0;      /* lets this flex child shrink to fit the window instead of growing */
+    overflow: hidden;
+  }
+  body.survey-mode .survey-main {
+    min-height: 0;
+    overflow: hidden;   /* the right panel itself no longer scrolls... */
+  }
+  body.survey-mode .survey-questions-wrap {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;   /* ...only the question area inside it does */
+    scrollbar-gutter: stable;   /* reserves scrollbar space so text doesn't jump */
+  }
+  /* Prev/Next, dots and warning stay fixed under the scrolling area */
+  body.survey-mode .section-nav,
+  body.survey-mode #dots-container,
+  body.survey-mode #warning-banner { flex-shrink: 0; }
+
+  /* PHONES / SMALL TABLETS */
+  @media (max-width: 767px) {
+    /* No fixed minimum: let six options take only the space they need */
+    .response-options-fixed { min-height: 0; }
+    /* Section names sit side by side in one swipeable row, instead of
+       stacking vertically and eating into the question area */
+    #sidebar-items { display: flex; gap: 6px; }
+  }
 </style>
 </head>
 <body>
@@ -1507,6 +1551,8 @@ function shuffle(arr) {
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
+  /* Lock the page layout only while the survey questions are showing (see CSS "survey-mode") */
+  document.body.classList.toggle('survey-mode', id === 'screen-survey');
 }
 
 /* START SURVEY */
@@ -1540,7 +1586,7 @@ function goToSection(idx) {
   currentSection = idx;
   updateSidebar();
   renderSection();
-  document.getElementById('survey-main').scrollTop = 0;
+  document.getElementById('questions-container').scrollTop = 0;  /* the area that scrolls now */
 }
 
 /* UPDATE SIDEBAR */
@@ -1653,8 +1699,9 @@ function renderCarouselQuestion(qs) {
       setTimeout(function() { qc.classList.remove('carousel-fade-in'); }, 300);
     }, 180);
   }
-  var sm = document.getElementById('survey-main');
-  if (sm) sm.scrollTop = 0;
+  /* Start each new question at the top of the scrolling area */
+  var qcScroll = document.getElementById('questions-container');
+  if (qcScroll) qcScroll.scrollTop = 0;
 
   /* Update dots outside the card */
   updateDots(qs);
